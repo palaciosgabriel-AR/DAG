@@ -11,10 +11,10 @@ body {
 }
 .container { max-width: 1000px; margin: 1.2rem auto 3rem; padding: 0 1rem; }
 
-/* ---------- Header + Nav ---------- */
+/* ---------- Header + Nav + Data actions ---------- */
 .topbar {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto; /* brand | nav | data | theme */
   align-items: center;
   gap: .8rem;
   padding: .8rem 1rem;
@@ -38,6 +38,9 @@ body {
 .nav a:hover { background: rgba(255,255,255,.12); }
 .nav a.active { background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.3); }
 .toggle { display: inline-flex; gap: .5rem; align-items: center; user-select: none; }
+
+.data-actions { display: inline-flex; gap: .4rem; align-items: center; }
+.btn-small { padding: .35rem .6rem; font-size: .9rem; }
 
 .status { text-align: center; margin: 0 0 1.1rem; font-weight: 700; }
 
