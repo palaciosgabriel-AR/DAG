@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DÄG — Map</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="map">
+  <header class="topbar">
+    <div class="brand">
+      <span class="flag">🇨🇭</span><strong>DÄG across Switzerland</strong><span class="flag">🇨🇭</span>
+    </div>
+    <nav class="nav">
+      <a href="./index.html">Numbers</a>
+      <a href="./points.html">Points</a>
+      <a href="./map.html" class="active">Map</a>
+    </nav>
+    <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
+  </header>
+
+  <main class="container">
+    <section class="assign-controls">
+      <span class="assign-label">Assign to:</span>
+      <button class="chip" data-player="D">D</button>
+      <button class="chip" data-player="Ä">Ä</button>
+      <button class="chip" data-player="G">G</button>
+      <span class="legend">
+        <span class="swatch swatch-d"></span>D
+        <span class="swatch swatch-ae"></span>Ä
+        <span class="swatch swatch-g"></span>G
+      </span>
+    </section>
+
+    <div class="map-wrap">
+      <svg id="ch-map" viewBox="0 0 1000 700" role="img" aria-label="Swiss cantons">
+        <g class="cantons" id="cantons-layer"></g>
+      </svg>
+    </div>
+    <div id="counts" class="counts"></div>
+  </main>
+
+  <script src="./map.js" defer></script>
+</body>
+</html>
