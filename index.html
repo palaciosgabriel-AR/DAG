@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DÄG across Switzerland — Numbers & Tasks</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="numbers">
+  <header class="topbar">
+    <div class="brand">
+      <span class="flag">🇨🇭</span><strong>DÄG across Switzerland</strong><span class="flag">🇨🇭</span>
+    </div>
+    <nav class="nav">
+      <a href="./index.html" class="active">Numbers</a>
+      <a href="./points.html">Points</a>
+      <a href="./map.html">Map</a>
+    </nav>
+    <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
+  </header>
+
+  <main class="container">
+    <p id="status" class="status"></p>
+
+    <section class="buttons">
+      <button id="btn-d"  class="btn btn-letter">D</button>
+      <button id="btn-ae" class="btn btn-letter">Ä</button>
+      <button id="btn-g"  class="btn btn-letter">G</button>
+    </section>
+
+    <section class="log">
+      <h2>Log</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Player</th><th>#</th><th>Task</th><th>Reward</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </section>
+
+    <section class="task-table">
+      <h2>Tasks (1–26)</h2>
+      <table>
+        <thead><tr><th>Number</th><th>Task text</th></tr></thead>
+        <tbody id="tasksBody"></tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <button id="reset" class="btn btn-reset" title="Reset numbers, log, and tasks">Reset</button>
+    </footer>
+  </main>
+
+  <script src="./numbers.js" defer></script>
+</body>
+</html>
