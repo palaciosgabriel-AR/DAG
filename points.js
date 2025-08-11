@@ -1,4 +1,4 @@
-/* Points page: unified log + Undo support */
+/* Points page: unified log + Undo that also unclaims tasks in Numbers */
 const summary  = document.getElementById('summary');
 const body     = document.getElementById('pointsBody');
 const spendBtn = document.getElementById('spend');
@@ -9,7 +9,7 @@ const noteEl    = document.getElementById('note');
 
 let current = localStorage.getItem('lastPlayer') || 'D';
 let points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
-let log     = load('pointsLog', []); // entries: {id,t,p,points,note,undoOf?,undone?} (legacy may have {minutes})
+let log     = load('pointsLog', []); // {id,t,p,points,note,undoOf?,undone?,originNumbersId?} (legacy may have {minutes})
 
 highlightPlayer(current);
 renderSummary();
@@ -60,10 +60,7 @@ function renderSummary(){
 
 function renderLog(){
   body.innerHTML='';
-  // ensure all entries have IDs (for undo linking)
-  for (let i=0;i<log.length;i++) {
-    if (!log[i].id) { log[i].id = uid(); }
-  }
+  for (let i=0;i<log.length;i++) { if (!log[i].id) log[i].id = uid(); }
   save('pointsLog', log);
   for (let i=log.length-1;i>=0;i--) prependRow(log[i], false);
 }
@@ -71,7 +68,6 @@ function renderLog(){
 function prependRow(e, insertTop=true){
   const tr = document.createElement('tr');
 
-  // compute canonical points value (legacy support)
   const pts = typeof e.points === 'number'
     ? e.points
     : (typeof e.minutes === 'number' ? -(e.minutes*10) : 0);
@@ -84,9 +80,7 @@ function prependRow(e, insertTop=true){
     const btn = document.createElement('button');
     btn.className = 'btn btn-small';
     btn.textContent = 'Undo';
-    btn.addEventListener('click', ()=>{
-      doUndo(e, btn);
-    });
+    btn.addEventListener('click', ()=>{ doUndo(e, btn); });
     actions.appendChild(btn);
   } else {
     actions.textContent = isUndoEntry ? '← undo' : '';
@@ -99,10 +93,8 @@ function prependRow(e, insertTop=true){
 
 /* ---------- Undo logic ---------- */
 function doUndo(origEntry, buttonEl){
-  // ensure ID present
   if (!origEntry.id) { origEntry.id = uid(); save('pointsLog', log); }
 
-  // inverse delta (legacy-safe)
   const origPts = typeof origEntry.points === 'number'
     ? origEntry.points
     : (typeof origEntry.minutes === 'number' ? -(origEntry.minutes*10) : 0);
@@ -123,14 +115,45 @@ function doUndo(origEntry, buttonEl){
   };
   log.push(undo);
 
-  // Mark original as undone and persist
+  // Mark original as undone
   origEntry.undone = true;
   save('pointsLog', log);
 
-  // UI: disable the clicked button and add the undo entry at the top
+  // If this was a task claim (+500) and we know its originating Numbers entry, unclaim it
+  if (origPts > 0) {
+    unclaimNumbersTask(origEntry);
+  }
+
   if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Undone'; }
   prependRow(undo, true);
   renderSummary();
+}
+
+/* Reset task's claimed flag in Numbers if we can identify it */
+function unclaimNumbersTask(pointsEntry){
+  const logs = load('logEntries', []); // numbers page log
+  let changed = false;
+
+  if (pointsEntry.originNumbersId) {
+    const idx = logs.findIndex(x => x && x.id === pointsEntry.originNumbersId);
+    if (idx >= 0 && logs[idx].claimed) {
+      logs[idx].claimed = false;
+      changed = true;
+    }
+  } else {
+    // Fallback heuristic: match by player + exact task text (note) + claimed=true, prefer most recent
+    const note = (pointsEntry.note || '').replace(/^UNDO:\s*/,'').trim();
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const row = logs[i];
+      if (row && row.p === pointsEntry.p && (row.task||'').trim() === note && row.claimed === true) {
+        logs[i].claimed = false;
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  if (changed) save('logEntries', logs);
 }
 
 /* ---------- Helpers ---------- */
