@@ -76,8 +76,24 @@ window.addEventListener('daeg-theme-change', applyMapColors);
 
 function updateCounts(){
   const counts={'D':0,'Ä':0,'G':0}; Object.values(mapState).forEach(v=>{ if(counts[v]!=null) counts[v]++; });
-  document.getElementById('counts').textContent = `Cantons — D: ${counts['D']} · Ä: ${counts['Ä']} · G: ${counts['G']}`;
+  const html = renderScoreboard([
+    { label:'D',  value: counts['D'],  cls:'pill-d'  },
+    { label:'Ä',  value: counts['Ä'],  cls:'pill-ae' },
+    { label:'G',  value: counts['G'],  cls:'pill-g'  },
+  ], 'Cantons owned');
+  document.getElementById('counts').innerHTML = html;
 }
 
+/* shared helpers */
 function load(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;} }
 function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+
+function renderScoreboard(items, ariaLabel){
+  const pills = items.map(it => (
+    `<div class="pill ${it.cls}" role="group" aria-label="${it.label}">
+       <span class="tag"></span><span class="label">${it.label}</span>
+       <span class="value">${it.value}</span>
+     </div>`
+  )).join('');
+  return `<div class="scoreboard" aria-label="${ariaLabel}">${pills}</div>`;
+}
