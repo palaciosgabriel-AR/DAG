@@ -16,6 +16,12 @@
       <a href="./points.html">Points</a>
       <a href="./map.html">Map</a>
     </nav>
+    <div class="data-actions">
+      <button id="exportData" class="btn btn-small" title="Download saved data">Export</button>
+      <label class="btn btn-small" for="importFile" title="Load saved data">Import</label>
+      <input id="importFile" type="file" accept="application/json" hidden>
+      <button id="resetAll" class="btn btn-small" title="Reset all saved data">Reset all</button>
+    </div>
     <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
   </header>
 
@@ -49,6 +55,7 @@
     </footer>
   </main>
 
+  <script src="./shared.js" defer></script>
   <script src="./numbers.js" defer></script>
 </body>
 </html>
