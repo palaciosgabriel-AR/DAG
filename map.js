@@ -1,21 +1,11 @@
-/* Theme */
-const darkToggle = document.getElementById('darkToggle');
-const savedDark = localStorage.getItem('dark') === '1';
-document.body.classList.toggle('dark', savedDark);
-darkToggle.checked = savedDark;
-darkToggle.addEventListener('change', e=>{
-  document.body.classList.toggle('dark', e.target.checked);
-  localStorage.setItem('dark', e.target.checked ? '1' : '0');
-  applyMapColors();
-});
-
-/* Map assignment */
+/* Map assignment (persists) */
 const COLORS = { 'D': '#4B5320', 'Ä': '#7EC8E3', 'G': '#004080' };
 const CODES = ['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','VD','VS','NE','GE','TI','JU'];
 const CODESET = new Set(CODES);
 
 let mapState = load('mapState', {});   // {ZH:'D', ...}
 let activePlayer = localStorage.getItem('activePlayer') || 'D';
+
 const chips = Array.from(document.querySelectorAll('.chip'));
 chips.forEach(ch => ch.addEventListener('click', ()=>{ activePlayer = ch.dataset.player; localStorage.setItem('activePlayer',activePlayer); updateChips(); }));
 function updateChips(){ chips.forEach(ch=>ch.classList.toggle('active', ch.dataset.player===activePlayer)); }
@@ -40,16 +30,14 @@ const normId = (raw)=>{ if(!raw) return null; let s=raw.toUpperCase().trim();
       layer.innerHTML = '';
       const ensure = (code)=>{ let g=layer.querySelector(`#${code}`); if(!g){ g=document.createElementNS('http://www.w3.org/2000/svg','g'); g.setAttribute('class','canton'); g.setAttribute('id',code); layer.appendChild(g);} return g; };
 
-      let added = 0;
       Array.from(src.querySelectorAll('g[id]')).forEach(G=>{
         const code = normId(G.getAttribute('id')); if(!code) return;
         const dest = ensure(code);
         Array.from(G.querySelectorAll('path,polygon,rect')).forEach(sh=>{ const c=sh.cloneNode(true); scrub(c); dest.appendChild(c); });
-        added++;
       });
       Array.from(src.querySelectorAll('path[id],polygon[id],rect[id]')).forEach(sh=>{
         const code = normId(sh.getAttribute('id')); if(!code) return;
-        const dest = ensure(code); const c=sh.cloneNode(true); scrub(c); dest.appendChild(c); added++;
+        const dest = ensure(code); const c=sh.cloneNode(true); scrub(c); dest.appendChild(c);
       });
       if (layer.querySelectorAll('.canton').length < 20) throw new Error('not enough shapes');
 
@@ -84,7 +72,7 @@ function applyMapColors(){
     });
   });
 }
-darkToggle.addEventListener('change', applyMapColors);
+window.addEventListener('daeg-theme-change', applyMapColors);
 
 function updateCounts(){
   const counts={'D':0,'Ä':0,'G':0}; Object.values(mapState).forEach(v=>{ if(counts[v]!=null) counts[v]++; });
