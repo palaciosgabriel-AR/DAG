@@ -1,4 +1,4 @@
-/* Points page */
+/* Points page: unified points log (trips and tasks) */
 const summary  = document.getElementById('summary');
 const body     = document.getElementById('pointsBody');
 const spendBtn = document.getElementById('spend');
@@ -9,7 +9,7 @@ const noteEl    = document.getElementById('note');
 
 let current = localStorage.getItem('lastPlayer') || 'D';
 let points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
-let log     = load('pointsLog', []); // [{t,p,minutes,note}]
+let log     = load('pointsLog', []); // entries: {t,p,points,note}  (legacy may have {minutes})
 
 highlightPlayer(current);
 renderSummary();
@@ -31,15 +31,16 @@ spendBtn.addEventListener('click', ()=>{
   if (!Number.isInteger(m) || m<1 || m>120){
     errEl.textContent = 'Enter minutes between 1 and 120.'; return;
   }
-  if ((points[current]||0) - m < 0){
+  const delta = -(m * 10); // minutes cost 10 points each
+  if ((points[current]||0) + delta < 0){
     errEl.textContent = "You don't have enough points for that!";
     return;
   }
-  points[current] = (points[current]||0) - m;
+  points[current] = (points[current]||0) + delta;
   save('playerPoints', points);
   renderSummary();
 
-  const entry = { t: nowHHMMSS(), p: current, minutes: m, note };
+  const entry = { t: nowHHMMSS(), p: current, points: delta, note };
   log.push(entry); save('pointsLog', log);
   prependRow(entry);
 
@@ -58,11 +59,15 @@ function renderSummary(){
 }
 
 function renderLog(){
-  body.innerHTML=''; for (let i=log.length-1;i>=0;i--) prependRow(log[i], false);
+  body.innerHTML='';
+  for (let i=log.length-1;i>=0;i--) prependRow(log[i], false);
 }
 function prependRow(e, insertTop=true){
+  // Backward compat: if legacy entry stored minutes, render as -minutes*10
+  const pts = typeof e.points === 'number' ? e.points
+             : (typeof e.minutes === 'number' ? -(e.minutes*10) : 0);
   const tr=document.createElement('tr');
-  tr.innerHTML = `<td>${e.t}</td><td>${e.p}</td><td>${e.minutes}</td><td>${escapeHtml(e.note||'')}</td>`;
+  tr.innerHTML = `<td>${e.t}</td><td>${e.p}</td><td>${pts}</td><td>${escapeHtml(e.note||'')}</td>`;
   if (insertTop && body.firstChild) body.insertBefore(tr, body.firstChild); else body.appendChild(tr);
 }
 function highlightPlayer(p){
