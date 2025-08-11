@@ -146,9 +146,10 @@ function addPoints(player, amount){
 }
 function appendPointsLog(player, delta, note){
   const pLog = loadJson('pointsLog', []);
-  pLog.push({ t: fmt(new Date()), p: player, points: delta, note: note || '' });
+  pLog.push({ id: uid(), t: fmt(new Date()), p: player, points: delta, note: note || '' });
   saveJson('pointsLog', pLog);
 }
+
 
 /* ---------- utils ---------- */
 function emptyTasks(){ const o={}; for (let i=1;i<=26;i++) o[String(i)]=""; return o; }
