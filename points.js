@@ -1,7 +1,8 @@
-const summary = document.getElementById('summary');
-const body    = document.getElementById('pointsBody');
-const spendBtn= document.getElementById('spend');
-const errEl   = document.getElementById('error');
+/* Points page */
+const summary  = document.getElementById('summary');
+const body     = document.getElementById('pointsBody');
+const spendBtn = document.getElementById('spend');
+const errEl    = document.getElementById('error');
 
 const minutesEl = document.getElementById('minutes');
 const noteEl    = document.getElementById('note');
@@ -46,8 +47,16 @@ spendBtn.addEventListener('click', ()=>{
 });
 
 function renderSummary(){
-  summary.textContent = `Points left — D: ${points['D']||0} · Ä: ${points['Ä']||0} · G: ${points['G']||0}`;
+  const d  = points['D']  || 0;
+  const ae = points['Ä']  || 0;
+  const g  = points['G']  || 0;
+  summary.innerHTML = renderScoreboard([
+    { label: 'D',  value: d,  cls: 'pill-d'  },
+    { label: 'Ä',  value: ae, cls: 'pill-ae' },
+    { label: 'G',  value: g,  cls: 'pill-g'  },
+  ], 'Points left');
 }
+
 function renderLog(){
   body.innerHTML=''; for (let i=log.length-1;i>=0;i--) prependRow(log[i], false);
 }
@@ -63,3 +72,14 @@ function nowHHMMSS(){ const d=new Date(),p=x=>String(x).padStart(2,'0'); return 
 function load(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;} }
 function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function escapeHtml(s){ return s.replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;'}[m])); }
+
+/* shared scoreboard renderer */
+function renderScoreboard(items, ariaLabel){
+  const pills = items.map(it => (
+    `<div class="pill ${it.cls}" role="group" aria-label="${it.label}">
+       <span class="tag"></span><span class="label">${it.label}</span>
+       <span class="value">${it.value}</span>
+     </div>`
+  )).join('');
+  return `<div class="scoreboard" aria-label="${ariaLabel}">${pills}</div>`;
+}
