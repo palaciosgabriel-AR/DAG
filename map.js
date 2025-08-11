@@ -1,7 +1,14 @@
-/* Map assignment (persists) */
+/* Map assignment (persists) + labels + crowned leader */
 const COLORS = { 'D': '#4B5320', 'Ä': '#7EC8E3', 'G': '#004080' };
 const CODES = ['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','VD','VS','NE','GE','TI','JU'];
 const CODESET = new Set(CODES);
+const NAMES = {
+  ZH:'Zürich', BE:'Bern', LU:'Luzern', UR:'Uri', SZ:'Schwyz', OW:'Obwalden', NW:'Nidwalden',
+  GL:'Glarus', ZG:'Zug', FR:'Fribourg', SO:'Solothurn', BS:'Basel-Stadt', BL:'Basel-Landschaft',
+  SH:'Schaffhausen', AR:'Appenzell Ausserrhoden', AI:'Appenzell Innerrhoden', SG:'St. Gallen',
+  GR:'Graubünden', AG:'Aargau', TG:'Thurgau', VD:'Vaud', VS:'Valais', NE:'Neuchâtel',
+  GE:'Genève', TI:'Ticino', JU:'Jura'
+};
 
 let mapState = load('mapState', {});   // {ZH:'D', ...}
 let activePlayer = localStorage.getItem('activePlayer') || 'D';
@@ -49,15 +56,43 @@ const normId = (raw)=>{ if(!raw) return null; let s=raw.toUpperCase().trim();
 
 function scrub(el){ el.removeAttribute('class'); el.removeAttribute('style'); el.removeAttribute('fill'); el.removeAttribute('stroke'); el.removeAttribute('opacity'); }
 
+function ensureLabel(g, id){
+  let t = g.querySelector('text.label');
+  if (!t) {
+    t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('class','label');
+    t.textContent = NAMES[id] || id;
+    g.appendChild(t);
+  }
+  // center within canton bbox
+  const bb = g.getBBox();
+  t.setAttribute('x', (bb.x + bb.width / 2));
+  t.setAttribute('y', (bb.y + bb.height / 2));
+  return t;
+}
+
 function wireCantons(){
   Array.from(layer.querySelectorAll('.canton')).forEach(g=>{
     const id = normId(g.id); if(!id) return; g.id = id;
+
     g.addEventListener('click', ()=>{
       const cur = mapState[id];
       if(!cur) mapState[id]=activePlayer;
       else if (cur===activePlayer) delete mapState[id];
       else mapState[id]=activePlayer;
       save('mapState', mapState); applyMapColors(); updateCounts();
+    });
+
+    g.addEventListener('mouseenter', ()=>{
+      const owner = mapState[id];
+      const t = ensureLabel(g, id);
+      t.style.display = 'block';
+      if (!owner) { /* leave default color logic to applyMapColors */ }
+    });
+    g.addEventListener('mouseleave', ()=>{
+      const owner = mapState[id];
+      const t = g.querySelector('text.label');
+      if (t && !owner) t.style.display = 'none';
     });
   });
 }
@@ -66,22 +101,29 @@ function applyMapColors(){
   const dark = document.body.classList.contains('dark');
   Array.from(layer.querySelectorAll('.canton')).forEach(g=>{
     const id = g.id, owner = mapState[id];
-    Array.from(g.querySelectorAll('path,rect,polygon')).forEach(path=>{
+    const shapes = Array.from(g.querySelectorAll('path,rect,polygon'));
+    shapes.forEach(path=>{
       if(owner){ path.style.fill = COLORS[owner]; path.style.stroke = 'rgba(255,255,255,.85)'; }
       else { path.style.fill = dark ? '#1b1c21' : 'rgba(255,255,255,.9)'; path.style.stroke = dark ? '#2a2a2a' : 'rgba(0,0,0,.25)'; }
     });
+
+    // label visibility
+    const t = ensureLabel(g, id);
+    t.style.display = owner ? 'block' : 'none';
   });
 }
 window.addEventListener('daeg-theme-change', applyMapColors);
 
+/* ---- Scoreboard with crowns ---- */
 function updateCounts(){
   const counts={'D':0,'Ä':0,'G':0}; Object.values(mapState).forEach(v=>{ if(counts[v]!=null) counts[v]++; });
-  const html = renderScoreboard([
-    { label:'D',  value: counts['D'],  cls:'pill-d'  },
-    { label:'Ä',  value: counts['Ä'],  cls:'pill-ae' },
-    { label:'G',  value: counts['G'],  cls:'pill-g'  },
-  ], 'Cantons owned');
-  document.getElementById('counts').innerHTML = html;
+  const max = Math.max(counts['D'], counts['Ä'], counts['G']);
+  const items = [
+    { label:'D',  value: counts['D'],  cls:'pill-d',  crown: counts['D']===max && max>0 },
+    { label:'Ä',  value: counts['Ä'],  cls:'pill-ae', crown: counts['Ä']===max && max>0 },
+    { label:'G',  value: counts['G'],  cls:'pill-g',  crown: counts['G']===max && max>0 },
+  ];
+  document.getElementById('counts').innerHTML = renderScoreboard(items, 'Cantons owned');
 }
 
 /* shared helpers */
@@ -91,7 +133,9 @@ function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 function renderScoreboard(items, ariaLabel){
   const pills = items.map(it => (
     `<div class="pill ${it.cls}" role="group" aria-label="${it.label}">
-       <span class="tag"></span><span class="label">${it.label}</span>
+       <span class="tag"></span>
+       ${it.crown ? '<span class="crown" aria-hidden="true">👑</span>' : ''}
+       <span class="label">${it.label}</span>
        <span class="value">${it.value}</span>
      </div>`
   )).join('');
