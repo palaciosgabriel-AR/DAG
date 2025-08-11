@@ -93,8 +93,8 @@ function appendLogRow(e, newestOnTop){
         const player = logEntries[idx].p;
         const taskText = logEntries[idx].task || '';
 
-        addPoints(player, 500);                // update balance
-        appendPointsLog(player, 500, taskText); // write to points log
+        addPoints(player, 500);                        // update balance
+        appendPointsLog(player, 500, taskText, e.id);  // <-- store link to this numbers-entry id
 
         logEntries[idx].claimed = true;
         saveJson("logEntries", logEntries);
@@ -144,12 +144,18 @@ function addPoints(player, amount){
   pts[player] = (pts[player] || 0) + amount;
   saveJson("playerPoints", pts);
 }
-function appendPointsLog(player, delta, note){
+function appendPointsLog(player, delta, note, originNumbersId){
   const pLog = loadJson('pointsLog', []);
-  pLog.push({ id: uid(), t: fmt(new Date()), p: player, points: delta, note: note || '' });
+  pLog.push({
+    id: uid(),
+    t: fmt(new Date()),
+    p: player,
+    points: delta,
+    note: note || '',
+    originNumbersId: originNumbersId || null
+  });
   saveJson('pointsLog', pLog);
 }
-
 
 /* ---------- utils ---------- */
 function emptyTasks(){ const o={}; for (let i=1;i<=26;i++) o[String(i)]=""; return o; }
