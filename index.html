@@ -1,189 +1,62 @@
-/* ===== Numbers page: persistent draws, tasks, and claim buttons ===== */
-const TOTAL = 26;
-const PLAYERS = ["D", "Ä", "G"];
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DÄG across Switzerland — Numbers & Tasks</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body data-page="numbers">
+  <header class="topbar">
+    <div class="brand">
+      <span class="flag">🇨🇭</span><strong>DÄG across Switzerland</strong><span class="flag">🇨🇭</span>
+    </div>
+    <nav class="nav">
+      <a href="./index.html" class="active">Numbers</a>
+      <a href="./points.html">Points</a>
+      <a href="./map.html">Map</a>
+    </nav>
+    <div class="data-actions">
+      <button id="exportData" class="btn btn-small" title="Download saved data">Export</button>
+      <label class="btn btn-small" for="importFile" title="Load saved data">Import</label>
+      <input id="importFile" type="file" accept="application/json" hidden>
+      <button id="resetAll" class="btn btn-small" title="Reset all saved data">Reset all</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
+  </header>
 
-const statusEl  = document.getElementById("status");
-const logBody   = document.getElementById("logBody");
-const tasksBody = document.getElementById("tasksBody");
-const resetBtn  = document.getElementById("reset");
-const btns = {
-  "D": document.getElementById("btn-d"),
-  "Ä": document.getElementById("btn-ae"),
-  "G": document.getElementById("btn-g"),
-};
+  <main class="container">
+    <p id="status" class="status"></p>
 
-/* ---------- load state (robust) ---------- */
-let used  = loadJson("usedSets", {"D":[],"Ä":[],"G":[]});
-Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
-let logEntries = loadJson("logEntries", []);             // [{id,t,p,n,task,claimed}]
-let tasks      = loadJson("tasksByNumber", emptyTasks()); // {"1":"..."}
+    <section class="buttons">
+      <button id="btn-d"  class="btn btn-letter">D</button>
+      <button id="btn-ae" class="btn btn-letter">Ä</button>
+      <button id="btn-g"  class="btn btn-letter">G</button>
+    </section>
 
-/* ---------- init UI ---------- */
-renderStatus();
-PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
-renderLogFromStorage();
-renderTasksTable();
+    <section class="log">
+      <h2>Log</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Player</th><th>#</th><th>Task</th><th>Reward</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </section>
 
-/* ---------- events ---------- */
-Object.keys(btns).forEach(p => {
-  btns[p].addEventListener("click", function(){ handlePress(p); });
-});
+    <section class="task-table">
+      <h2>Tasks (1–26)</h2>
+      <table>
+        <thead><tr><th>Number</th><th>Task text</th></tr></thead>
+        <tbody id="tasksBody"></tbody>
+      </table>
+    </section>
 
-resetBtn.addEventListener("click", function(){
-  if (!confirm("Reset numbers, log, and tasks?")) return;
-  used = {"D":new Set(), "Ä":new Set(), "G":new Set()};
-  logEntries = [];
-  tasks = emptyTasks();
-  persistUsed();
-  saveJson("logEntries", logEntries);
-  saveJson("tasksByNumber", tasks);
-  Object.keys(btns).forEach(k => btns[k].disabled = false);
-  clearChildren(logBody);
-  renderTasksTable();
-  renderStatus();
-});
+    <footer class="footer">
+      <button id="reset" class="btn btn-reset" title="Reset numbers, log, and tasks">Reset</button>
+    </footer>
+  </main>
 
-/* ---------- core logic ---------- */
-function handlePress(player){
-  const set = used[player];
-  const n = nextAvailableFrom(rand1toN(TOTAL), set);
-  const ts = new Date();
-
-  if (n === null){
-    // exhausted — still log the attempt
-    const entry = { id: ensureId(null), t: fmt(ts), p: player, n: "—", task: "", claimed: true };
-    logEntries.push(entry); saveJson("logEntries", logEntries);
-    appendLogRow(entry, true);
-    return;
-  }
-
-  set.add(n); persistUsed();
-
-  const taskText = String(tasks[String(n)] || "").trim();
-  const entry = { id: ensureId(null), t: fmt(ts), p: player, n: n, task: taskText, claimed: false };
-  logEntries.push(entry); saveJson("logEntries", logEntries);
-  appendLogRow(entry, true);
-
-  if (set.size === TOTAL) btns[player].disabled = true;
-  renderStatus();
-}
-
-function persistUsed(){
-  saveJson("usedSets", {
-    "D": Array.from(used["D"]),
-    "Ä": Array.from(used["Ä"]),
-    "G": Array.from(used["G"]),
-  });
-}
-
-/* ---------- log rendering ---------- */
-function appendLogRow(e, newestOnTop){
-  if (!logBody) return;
-  try {
-    // ensure id exists for claim wiring
-    if (!e.id) {
-      e.id = ensureId(null);
-      // backfill in storage by best-effort match
-      for (var i=logEntries.length-1; i>=0; i--){
-        var L = logEntries[i];
-        if (!L.id && L.t===e.t && L.p===e.p && String(L.n)===String(e.n) && String(L.task||"")===String(e.task||"")){
-          logEntries[i].id = e.id; break;
-        }
-      }
-      saveJson("logEntries", logEntries);
-    }
-
-    var tr = document.createElement("tr");
-    var claimable = Number.isInteger(e.n);
-    var taskText = String(e.task || "").trim();
-
-    tr.innerHTML =
-      "<td>"+e.t+"</td>" +
-      "<td>"+e.p+"</td>" +
-      "<td>"+e.n+"</td>" +
-      "<td>"+escapeHtml(taskText)+"</td>" +
-      "<td>"+ (claimable ? (
-        '<button class="btn claim" data-id="'+e.id+'" '+(e.claimed?'disabled':'')+'>'+(e.claimed?'✓ Claimed':'+500')+'</button>'
-      ) : "") + "</td>";
-
-    if (newestOnTop && logBody.firstChild) logBody.insertBefore(tr, logBody.firstChild);
-    else logBody.appendChild(tr);
-
-    if (claimable) {
-      var btn = tr.querySelector("button.claim");
-      if (btn) {
-        btn.addEventListener("click", function(){
-          var id = btn.getAttribute("data-id");
-          var idx = findLogIndexById(id);
-          if (idx >= 0 && !logEntries[idx].claimed){
-            addPoints(logEntries[idx].p, 500);
-            logEntries[idx].claimed = true;
-            saveJson("logEntries", logEntries);
-            btn.disabled = true;
-            btn.textContent = "✓ Claimed";
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.error("appendLogRow failed:", err);
-  }
-}
-
-function renderLogFromStorage(){
-  if (!Array.isArray(logEntries)) logEntries = [];
-  for (var i = logEntries.length - 1; i >= 0; i--) appendLogRow(logEntries[i], false);
-}
-
-function findLogIndexById(id){
-  for (var i=0;i<logEntries.length;i++) if (logEntries[i].id === id) return i;
-  return -1;
-}
-
-/* ---------- tasks table ---------- */
-function renderTasksTable(){
-  if (!tasksBody) return;
-  clearChildren(tasksBody);
-  for (var i=1;i<=26;i++){
-    var tr = document.createElement("tr");
-    var val = String(tasks[String(i)] || "");
-    tr.innerHTML =
-      "<td>"+i+"</td>" +
-      '<td><input type="text" data-num="'+i+'" value="'+escapeAttr(val)+'" placeholder="Enter task for '+i+'"></td>';
-    tasksBody.appendChild(tr);
-  }
-  var inputs = tasksBody.querySelectorAll('input[type="text"]');
-  for (var j=0;j<inputs.length;j++){
-    (function(inp){
-      inp.addEventListener("input", function(){
-        tasks[String(inp.getAttribute("data-num"))] = inp.value;
-        saveJson("tasksByNumber", tasks);
-      });
-    })(inputs[j]);
-  }
-}
-
-/* ---------- cross-page points credit ---------- */
-function addPoints(player, amount){
-  var pts = loadJson("playerPoints", {"D":500,"Ä":500,"G":500});
-  pts[player] = (pts[player] || 0) + amount;
-  saveJson("playerPoints", pts);
-}
-
-/* ---------- utils ---------- */
-function emptyTasks(){ var o={}; for (var i=1;i<=26;i++) o[String(i)]=""; return o; }
-function loadJson(k, d){ try{ var s=localStorage.getItem(k); return s?JSON.parse(s):d; }catch(_){ return d; } }
-function saveJson(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(_){ /* quota? ignore */ } }
-function rand1toN(n){ return Math.floor(Math.random()*n)+1; }
-function nextAvailableFrom(start,set){ if(set.size>=26) return null; var c=start; for (var i=0;i<26;i++){ if(!set.has(c)) return c; c=(c%26)+1; } return null; }
-function fmt(d){ function p(x){return String(x).padStart(2,"0");} return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds()); }
-function ensureId(seed){
-  if (window.crypto && window.crypto.getRandomValues){
-    var a=new Uint32Array(2); window.crypto.getRandomValues(a);
-    return (Date.now().toString(36)+"-"+a[0].toString(36)+"-"+a[1].toString(36));
-  }
-  return "id-"+Math.random().toString(36).slice(2);
-}
-function clearChildren(el){ while (el && el.firstChild) el.removeChild(el.firstChild); }
-function escapeHtml(s){ return s.replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];}); }
-function escapeAttr(s){ return escapeHtml(s).replace(/"/g,"&quot;"); }
+  <!-- Important: JS files are linked like this -->
+  <script src="./shared.js" defer></script>
+  <script src="./numbers.js" defer></script>
+</body>
+</html>
