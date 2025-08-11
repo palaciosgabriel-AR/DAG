@@ -7,28 +7,28 @@ const logBody   = document.getElementById("logBody");
 const tasksBody = document.getElementById("tasksBody");
 const resetBtn  = document.getElementById("reset");
 const btns = {
-  "D": document.getElementById("btn-d"),
-  "Ä": document.getElementById("btn-ae"),
-  "G": document.getElementById("btn-g"),
+  D: document.getElementById("btn-d"),
+  Ä: document.getElementById("btn-ae"),
+  G: document.getElementById("btn-g"),
 };
 
 /* ---------- load state ---------- */
-let used = loadJson("usedSets", { "D": [], "Ä": [], "G": [] });
+let used = loadJson("usedSets", { D: [], Ä: [], G: [] });
 Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
-let logEntries = loadJson("logEntries", []);             // [{id,t,p,n,task,claimed}]
+let logEntries = loadJson("logEntries", []);            // [{id,t,p,n,task,claimed}]
 let tasks      = loadJson("tasksByNumber", emptyTasks()); // {"1":"..."}
 
 /* ---------- init UI ---------- */
 renderStatus();
-PLAYERS.forEach(p => { if (btns[p] && used[p].size === TOTAL) btns[p].disabled = true; });
+PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
 renderLogFromStorage();
 renderTasksTable();
 
 /* ---------- events ---------- */
-Object.keys(btns).forEach(p => btns[p]?.addEventListener("click", () => handlePress(p)));
-resetBtn?.addEventListener("click", () => {
+Object.keys(btns).forEach(p => btns[p].addEventListener("click", () => handlePress(p)));
+resetBtn.addEventListener("click", () => {
   if (!confirm("Reset numbers, log, and tasks?")) return;
-  used = { "D": new Set(), "Ä": new Set(), "G": new Set() };
+  used = { D: new Set(), Ä: new Set(), G: new Set() };
   logEntries = [];
   tasks = emptyTasks();
   persistUsed();
@@ -59,19 +59,17 @@ function handlePress(player){
   logEntries.push(entry); saveJson("logEntries", logEntries);
   appendLogRow(entry, true);
 
-  if (set.size === TOTAL && btns[player]) btns[player].disabled = true;
+  if (set.size === TOTAL) btns[player].disabled = true;
   renderStatus();
 }
 
 function persistUsed(){
   saveJson("usedSets", {
-    "D": Array.from(used["D"]),
-    "Ä": Array.from(used["Ä"]),
-    "G": Array.from(used["G"]),
+    D: Array.from(used.D), Ä: Array.from(used.Ä), G: Array.from(used.G),
   });
 }
 
-/* ---------- log rendering (DOM nodes, no innerHTML) ---------- */
+/* ---------- log rendering ---------- */
 function appendLogRow(e, newestOnTop){
   if (!logBody) return;
 
@@ -92,7 +90,12 @@ function appendLogRow(e, newestOnTop){
       if (btn.disabled) return;
       const idx = logEntries.findIndex(x => x.id === e.id);
       if (idx >= 0 && !logEntries[idx].claimed) {
-        addPoints(logEntries[idx].p, 500);
+        const player = logEntries[idx].p;
+        const taskText = logEntries[idx].task || '';
+
+        addPoints(player, 500);                // update balance
+        appendPointsLog(player, 500, taskText); // write to points log
+
         logEntries[idx].claimed = true;
         saveJson("logEntries", logEntries);
         btn.disabled = true;
@@ -123,9 +126,7 @@ function renderTasksTable(){
 
     const tdInp = document.createElement("td");
     const inp = document.createElement("input");
-    inp.type = "text";
-    inp.value = tasks[String(i)] || "";
-    inp.setAttribute("data-num", String(i));
+    inp.type = "text"; inp.value = tasks[String(i)] || ""; inp.setAttribute("data-num", String(i));
     inp.placeholder = `Enter task for ${i}`;
     const saveIt = () => { tasks[String(i)] = inp.value; saveJson("tasksByNumber", tasks); };
     inp.addEventListener("input", saveIt);
@@ -137,11 +138,16 @@ function renderTasksTable(){
   }
 }
 
-/* ---------- cross-page points credit ---------- */
+/* ---------- cross-page points credit + logging ---------- */
 function addPoints(player, amount){
-  const pts = loadJson("playerPoints", { "D":500, "Ä":500, "G":500 });
+  const pts = loadJson("playerPoints", { D:500, Ä:500, G:500 });
   pts[player] = (pts[player] || 0) + amount;
   saveJson("playerPoints", pts);
+}
+function appendPointsLog(player, delta, note){
+  const pLog = loadJson('pointsLog', []);
+  pLog.push({ t: fmt(new Date()), p: player, points: delta, note: note || '' });
+  saveJson('pointsLog', pLog);
 }
 
 /* ---------- utils ---------- */
@@ -153,7 +159,6 @@ function nextAvailableFrom(start,set){ if(set.size>=26) return null; let c=start
 function fmt(d){ const p=x=>String(x).padStart(2,"0"); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function uid(){ if (crypto && crypto.getRandomValues){ const a=new Uint32Array(2); crypto.getRandomValues(a); return `${Date.now().toString(36)}-${a[0].toString(36)}-${a[1].toString(36)}`; } return `id-${Math.random().toString(36).slice(2)}`; }
 function clearChildren(el){ while (el && el.firstChild) el.removeChild(el.firstChild); }
-
 function renderStatus(){
   const left = L => TOTAL - (used[L] ? used[L].size : 0);
   statusEl.textContent = `Numbers left — D: ${left("D")}, Ä: ${left("Ä")}, G: ${left("G")}`;
