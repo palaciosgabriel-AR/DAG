@@ -1,13 +1,3 @@
-/* Theme */
-const darkToggle = document.getElementById('darkToggle');
-const savedDark = localStorage.getItem('dark') === '1';
-document.body.classList.toggle('dark', savedDark);
-darkToggle.checked = savedDark;
-darkToggle.addEventListener('change', e=>{
-  document.body.classList.toggle('dark', e.target.checked);
-  localStorage.setItem('dark', e.target.checked ? '1' : '0');
-});
-
 const summary = document.getElementById('summary');
 const body    = document.getElementById('pointsBody');
 const spendBtn= document.getElementById('spend');
