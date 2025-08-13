@@ -1,12 +1,19 @@
+[build]
+  # Static site; no build command needed.
+  publish = "."
+
+# Global security and CSP headers
 [[headers]]
   for = "/*"
   [headers.values]
     Content-Security-Policy = """
       default-src 'self';
+      base-uri 'self';
+      object-src 'none';
       img-src 'self' data: https:;
+      font-src 'self' data:;
       script-src 'self' https://www.gstatic.com;
       style-src 'self' 'unsafe-inline';
-      font-src 'self' data:;
       connect-src 'self'
         https://firestore.googleapis.com
         https://identitytoolkit.googleapis.com
@@ -14,4 +21,10 @@
         https://www.googleapis.com
         https://upload.wikimedia.org
         https://simplemaps.com;
+      frame-ancestors 'self';
+      form-action 'self';
     """
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
