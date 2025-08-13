@@ -1,20 +1,17 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    # Allow Firebase scripts + API calls
     Content-Security-Policy = """
       default-src 'self';
       img-src 'self' data: https:;
       script-src 'self' https://www.gstatic.com;
-      style-src 'self';
+      style-src 'self' 'unsafe-inline';
       font-src 'self' data:;
       connect-src 'self'
-                  https://upload.wikimedia.org https://simplemaps.com
-                  https://firestore.googleapis.com
-                  https://identitytoolkit.googleapis.com
-                  https://securetoken.googleapis.com
-                  https://www.googleapis.com;
+        https://firestore.googleapis.com
+        https://identitytoolkit.googleapis.com
+        https://securetoken.googleapis.com
+        https://www.googleapis.com
+        https://upload.wikimedia.org
+        https://simplemaps.com;
     """
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    X-Frame-Options = "SAMEORIGIN"
