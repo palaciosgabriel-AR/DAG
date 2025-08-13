@@ -19,8 +19,3 @@
 
 // Everyone who should sync shares this id (Firestore doc: games/DAEG)
 export const GAME_ID = "DAEG";
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
-</script>
