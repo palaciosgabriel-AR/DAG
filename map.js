@@ -1,4 +1,4 @@
-/* Map assignment (persists) + labels + crowned leader */
+/* Map assignment (persists) + labels + crowned leader + robust local SVG fallback */
 const COLORS = { 'D': '#4B5320', 'Ä': '#7EC8E3', 'G': '#004080' };
 const CODES = ['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','VD','VS','NE','GE','TI','JU'];
 const CODESET = new Set(CODES);
@@ -21,11 +21,16 @@ updateChips();
 const hostSvg = document.getElementById('ch-map');
 const layer = document.getElementById('cantons-layer');
 
-const normId = (raw)=>{ if(!raw) return null; let s=raw.toUpperCase().trim();
-  s=s.replace(/^CH[\-_.\s]?/,''); s=s.replace(/[^A-Z]/g,''); if(s.length>2)s=s.slice(-2); return CODESET.has(s)?s:null; };
+function normId(raw){
+  if(!raw) return null; let s=raw.toUpperCase().trim();
+  s=s.replace(/^CH[\-_.\s]?/,''); s=s.replace(/[^A-Z]/g,''); if(s.length>2)s=s.slice(-2);
+  return CODESET.has(s)?s:null;
+}
 
+// Try local file first (works without CSP/network), then remote fallbacks
 (async function loadSvg(){
   const sources = [
+    './ch.svg?v=1',
     'https://upload.wikimedia.org/wikipedia/commons/f/f8/Suisse_cantons.svg',
     'https://simplemaps.com/static/svg/country/ch/admin1/ch.svg'
   ];
@@ -84,10 +89,8 @@ function wireCantons(){
     });
 
     g.addEventListener('mouseenter', ()=>{
-      const owner = mapState[id];
       const t = ensureLabel(g, id);
       t.style.display = 'block';
-      if (!owner) { /* leave default color logic to applyMapColors */ }
     });
     g.addEventListener('mouseleave', ()=>{
       const owner = mapState[id];
@@ -107,11 +110,14 @@ function applyMapColors(){
       else { path.style.fill = dark ? '#1b1c21' : 'rgba(255,255,255,.9)'; path.style.stroke = dark ? '#2a2a2a' : 'rgba(0,0,0,.25)'; }
     });
 
-    // label visibility
     const t = ensureLabel(g, id);
-    t.style.display = owner ? 'block' : 'none';
+    t.style.display = mapState[id] ? 'block' : 'none';
   });
 }
+window.addEventListener('daeg-sync-apply', ()=>{
+  mapState = load('mapState', {});
+  applyMapColors(); updateCounts(); updateChips();
+});
 window.addEventListener('daeg-theme-change', applyMapColors);
 
 /* ---- Scoreboard with crowns ---- */
