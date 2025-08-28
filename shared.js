@@ -66,10 +66,20 @@
     reader.readAsText(f);
   });
 
-  resetAll?.addEventListener('click', () => {
-    if (confirm('Reset ALL saved data (numbers, tasks, log, points, map)?')) {
-      localStorage.clear();
+  // FIXED: Reset both local *and* Firestore
+  resetAll?.addEventListener('click', async () => {
+    if (!confirm('Reset ALL saved data (numbers, tasks, log, points, map) for everyone?')) return;
+    try {
+      if (typeof window.daegSyncReset === 'function') {
+        await window.daegSyncReset();   // remote reset + local apply
+      } else {
+        // Fallback (no sync.js): just clear local
+        localStorage.clear();
+      }
       location.reload();
+    } catch (err) {
+      console.error('Reset failed:', err);
+      alert('Reset failed. Check console for details.');
     }
   });
 })();
