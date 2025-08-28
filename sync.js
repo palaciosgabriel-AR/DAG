@@ -1,6 +1,6 @@
-// sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0, config inlined)
+// sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0), config inlined
 
-// ---- 1) INLINE CONFIG (edit GAME_ID if you want a new session) ----
+// 1) INLINE CONFIG (edit GAME_ID to start a fresh session)
 const firebaseConfig = {
   apiKey: "AIzaSyBukCK_qvHrHqkUYR90ch25vV_tsbe2RBo",
   authDomain: "daeg-d59cf.firebaseapp.com",
@@ -12,31 +12,32 @@ const firebaseConfig = {
 };
 const GAME_ID = "DAEG"; // Firestore document path: games/DAEG
 
-// ---- 2) Firebase ESM imports from CDN ----
+// 2) Firebase ESM imports from CDN
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// ---- 3) Keys we sync ----
+// 3) Keys we sync
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
   "dark","activePlayer","lastPlayer"
 ];
 
-// ---- 4) Init + anonymous sign-in ----
+// 4) Init Firebase
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
-await ensureAnonSignIn();
-const uid = auth.currentUser?.uid || "anon";
+
+let uid = "anon";
 const gameRef = doc(db, "games", GAME_ID);
 
-// ---- 5) Local <-> Remote state ----
+// 5) Local <-> Remote state
 let applyingRemote = false;
 let pushTimer = null;
 let lastRemoteRev = 0;
 
+function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
 function packLocal(){
   const x={}; for (const k of KEYS){ const v = localStorage.getItem(k); x[k] = safeParse(v); } return x;
 }
@@ -44,44 +45,57 @@ function applyLocal(data){
   applyingRemote = true;
   try {
     for (const k of KEYS) if (k in data) localStorage.setItem(k, JSON.stringify(data[k]));
-    // nudge pages (they already listen for 'storage' in our code)
-    window.dispatchEvent(new Event("storage"));
-  } finally { applyingRemote = false; }
+  } finally {
+    applyingRemote = false;
+  }
+  // notify all pages to re-render immediately (cross-device friendly)
+  window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
-function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
 
-function schedulePush(){ if (applyingRemote) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 350); }
+function schedulePush(){ if (applyingRemote) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 250); }
 async function pushNow(){
   const payload = packLocal();
   const rev = Date.now();
   lastRemoteRev = rev;
-  await setDoc(gameRef, { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...payload }, { merge:true });
+  await setDoc(
+    gameRef,
+    { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...payload },
+    { merge:true }
+  );
 }
 
 // Hook localStorage so any app change gets synced
 const _set = localStorage.setItem.bind(localStorage);
-localStorage.setItem = function(k, v){ _set(k, v); if (KEYS.includes(k) && !applyingRemote) schedulePush(); };
+localStorage.setItem = function(k, v){
+  _set(k, v);
+  if (KEYS.includes(k) && !applyingRemote) schedulePush();
+};
 
-// ---- 6) Start: seed/apply + realtime listener ----
-(async function(){
+// 6) Start: sign-in, seed/apply, realtime listener
+async function start(){
+  if (!auth.currentUser) {
+    try { await signInAnonymously(auth); } catch {}
+  }
+  uid = auth.currentUser?.uid || "anon";
+
   const snap = await getDoc(gameRef);
   if (snap.exists()){
     const data = snap.data()||{};
     lastRemoteRev = (data._meta && data._meta.rev) || 0;
     applyLocal(data);
   } else {
-    await pushNow();
+    await pushNow(); // seed remote from current local
   }
+
   onSnapshot(gameRef, s=>{
     if (!s.exists()) return;
     const data = s.data()||{};
     const rev = (data._meta && data._meta.rev) || 0;
-    if (rev > lastRemoteRev){ applyLocal(data); lastRemoteRev = rev; }
+    if (rev > lastRemoteRev){
+      applyLocal(data);
+      lastRemoteRev = rev;
+    }
   }, err => console.error("Firestore onSnapshot error:", err));
-})();
-
-async function ensureAnonSignIn(){
-  if (auth.currentUser) return;
-  await new Promise((resolve)=>{ const off=onAuthStateChanged(auth,()=>{off(); resolve();}); });
-  if (!auth.currentUser) await signInAnonymously(auth);
 }
+
+start();
