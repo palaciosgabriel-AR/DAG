@@ -1,6 +1,6 @@
 // sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0), config inlined
 
-// 1) INLINE CONFIG (edit GAME_ID to start a fresh session)
+// 1) INLINE CONFIG
 const firebaseConfig = {
   apiKey: "AIzaSyBukCK_qvHrHqkUYR90ch25vV_tsbe2RBo",
   authDomain: "daeg-d59cf.firebaseapp.com",
@@ -10,9 +10,9 @@ const firebaseConfig = {
   appId: "1:862000912172:web:27e96ecff42a6806897e89",
   measurementId: "G-Y0LLM4HYLP"
 };
-const GAME_ID = "DAEG"; // Firestore document path: games/DAEG
+const GAME_ID = "DAEG"; // Firestore document: games/DAEG
 
-// 2) Firebase ESM imports from CDN
+// 2) Firebase ESM imports
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
@@ -48,7 +48,6 @@ function applyLocal(data){
   } finally {
     applyingRemote = false;
   }
-  // notify all pages to re-render immediately (cross-device friendly)
   window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
 
@@ -71,7 +70,36 @@ localStorage.setItem = function(k, v){
   if (KEYS.includes(k) && !applyingRemote) schedulePush();
 };
 
-// 6) Start: sign-in, seed/apply, realtime listener
+// 6) Remote RESET (used by the Reset All button)
+function initialSnapshot(){
+  const currentDark = localStorage.getItem('dark') || '0';
+  return {
+    dark: currentDark,
+    usedSets: { D:[], Ä:[], G:[] },
+    logEntries: [],
+    tasksByNumber: {},
+    playerPoints: { D:500, Ä:500, G:500 },
+    pointsLog: [],
+    mapState: {},
+    activePlayer: 'D',
+    lastPlayer: 'D'
+  };
+}
+async function doRemoteReset(){
+  const snap = initialSnapshot();
+  const rev  = Date.now();
+  lastRemoteRev = rev;
+  await setDoc(
+    gameRef,
+    { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...snap },
+    { merge:true }
+  );
+  applyLocal(snap); // immediately replace local state, too
+}
+// Expose a safe handle for shared.js
+window.daegSyncReset = doRemoteReset;
+
+// 7) Start: sign-in, seed/apply, realtime listener
 async function start(){
   if (!auth.currentUser) {
     try { await signInAnonymously(auth); } catch {}
