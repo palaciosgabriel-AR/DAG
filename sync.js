@@ -1,4 +1,4 @@
-// sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0), config inlined
+// sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0), with status badge & write probe
 
 // 1) INLINE CONFIG
 const firebaseConfig = {
@@ -32,10 +32,36 @@ const db   = getFirestore(app);
 let uid = "anon";
 const gameRef = doc(db, "games", GAME_ID);
 
+// ===== Live status badge (helps debug remote vs. local) =====
+const statusEl = (() => {
+  const el = document.createElement('span');
+  el.id = 'liveStatus';
+  el.setAttribute('aria-live', 'polite');
+  el.style.cssText = `
+    margin-left:.5rem;padding:.2rem .5rem;border-radius:.5rem;
+    border:1px solid rgba(255,255,255,.5);
+    background:rgba(255,255,255,.15); color:#fff; font-size:.8rem;
+  `;
+  const holder = document.querySelector('.data-actions') || document.querySelector('.topbar');
+  if (holder) holder.appendChild(el);
+  return el;
+})();
+function setStatus(text, tone='info'){
+  if (!statusEl) return;
+  statusEl.textContent = `Live: ${text}`;
+  // simple color cue
+  if (tone === 'ok')      statusEl.style.background = 'rgba(46,204,113,.25)';   // green-ish
+  else if (tone === 'ro') statusEl.style.background = 'rgba(241,196,15,.25)';   // amber
+  else if (tone === 'err')statusEl.style.background = 'rgba(231,76,60,.25)';    // red-ish
+  else                    statusEl.style.background = 'rgba(255,255,255,.15)';  // default
+}
+setStatus('connecting…');
+
 // 5) Local <-> Remote state
 let applyingRemote = false;
 let pushTimer = null;
 let lastRemoteRev = 0;
+let writeable = false;
 
 function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
 function packLocal(){
@@ -51,16 +77,25 @@ function applyLocal(data){
   window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
 
-function schedulePush(){ if (applyingRemote) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 250); }
+function schedulePush(){ if (applyingRemote || !writeable) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 250); }
 async function pushNow(){
-  const payload = packLocal();
-  const rev = Date.now();
-  lastRemoteRev = rev;
-  await setDoc(
-    gameRef,
-    { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...payload },
-    { merge:true }
-  );
+  try{
+    const payload = packLocal();
+    const rev = Date.now();
+    lastRemoteRev = rev;
+    await setDoc(
+      gameRef,
+      { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...payload },
+      { merge:true }
+    );
+  }catch(err){
+    console.warn('[sync] push failed:', err?.code || err?.message || err);
+    // Likely permission denied -> mark read-only and re-probe
+    writeable = false;
+    setStatus('read-only', 'ro');
+    // try probe again after a bit
+    setTimeout(probeWrite, 1500);
+  }
 }
 
 // Hook localStorage so any app change gets synced
@@ -86,6 +121,7 @@ function initialSnapshot(){
   };
 }
 async function doRemoteReset(){
+  if (!writeable) { alert('This device is read-only (not signed in). Try another device/network.'); return; }
   const snap = initialSnapshot();
   const rev  = Date.now();
   lastRemoteRev = rev;
@@ -96,34 +132,60 @@ async function doRemoteReset(){
   );
   applyLocal(snap); // immediately replace local state, too
 }
-// Expose a safe handle for shared.js
 window.daegSyncReset = doRemoteReset;
 
-// 7) Start: sign-in, seed/apply, realtime listener
+// 7) Probe write permission (detects auth/network problems)
+async function probeWrite(){
+  try{
+    await setDoc(gameRef, { _probe:{ t: serverTimestamp() } }, { merge:true });
+    writeable = true;
+    setStatus('writeable', 'ok');
+  }catch(err){
+    writeable = false;
+    // auth/operation-not-allowed -> Anonymous not enabled
+    // permission-denied -> not signed in or rules
+    // network errors -> endpoints blocked
+    console.warn('[sync] write probe failed:', err?.code || err?.message || err);
+    setStatus('read-only', 'ro');
+  }
+}
+
+// 8) Start: sign-in, seed/apply, realtime listener
 async function start(){
-  if (!auth.currentUser) {
-    try { await signInAnonymously(auth); } catch {}
-  }
-  uid = auth.currentUser?.uid || "anon";
-
-  const snap = await getDoc(gameRef);
-  if (snap.exists()){
-    const data = snap.data()||{};
-    lastRemoteRev = (data._meta && data._meta.rev) || 0;
-    applyLocal(data);
-  } else {
-    await pushNow(); // seed remote from current local
-  }
-
-  onSnapshot(gameRef, s=>{
-    if (!s.exists()) return;
-    const data = s.data()||{};
-    const rev = (data._meta && data._meta.rev) || 0;
-    if (rev > lastRemoteRev){
-      applyLocal(data);
-      lastRemoteRev = rev;
+  try {
+    if (!auth.currentUser) {
+      try { await signInAnonymously(auth); } catch (e) { console.warn('[sync] signInAnonymously failed:', e); }
     }
-  }, err => console.error("Firestore onSnapshot error:", err));
+    uid = auth.currentUser?.uid || "anon";
+
+    // Try to read remote
+    const snap = await getDoc(gameRef);
+    if (snap.exists()){
+      const data = snap.data()||{};
+      lastRemoteRev = (data._meta && data._meta.rev) || 0;
+      applyLocal(data);
+    } else {
+      // seed remote from current local (may fail if read-only)
+      try { await pushNow(); } catch {}
+    }
+
+    // Realtime listener (reads still work in read-only)
+    onSnapshot(gameRef, s=>{
+      if (!s.exists()) return;
+      const data = s.data()||{};
+      const rev = (data._meta && data._meta.rev) || 0;
+      if (rev > lastRemoteRev){
+        applyLocal(data);
+        lastRemoteRev = rev;
+      }
+    }, err => console.error("Firestore onSnapshot error:", err));
+
+    // Finally check if we can write
+    await probeWrite();
+  } catch (e) {
+    console.error('[sync] fatal start error:', e);
+    setStatus('error', 'err');
+  }
 }
 
 start();
