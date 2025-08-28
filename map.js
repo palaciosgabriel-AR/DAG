@@ -1,4 +1,4 @@
-/* Map assignment (persists) + labels + crowned leader + robust local SVG fallback */
+/* Map assignment (persists) + labels + crowned leader + Safari-proof local SVG loader */
 const COLORS = { 'D': '#4B5320', 'Ä': '#7EC8E3', 'G': '#004080' };
 const CODES = ['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','VD','VS','NE','GE','TI','JU'];
 const CODESET = new Set(CODES);
@@ -27,20 +27,33 @@ function normId(raw){
   return CODESET.has(s)?s:null;
 }
 
-// Try local file first (works without CSP/network), then remote fallbacks
 (async function loadSvg(){
   const sources = [
-    './ch.svg?v=1',
+    './ch.svg?v=2', // local file first (bypasses many Safari issues)
     'https://upload.wikimedia.org/wikipedia/commons/f/f8/Suisse_cantons.svg',
     'https://simplemaps.com/static/svg/country/ch/admin1/ch.svg'
   ];
-  for(const url of sources){
-    try{
-      const r = await fetch(url, {mode:'cors'}); if(!r.ok) continue;
-      const txt = await r.text(); const doc = new DOMParser().parseFromString(txt,'image/svg+xml'); const src = doc.documentElement;
-      const vb = src.getAttribute('viewBox'); if(vb) hostSvg.setAttribute('viewBox', vb);
+
+  for (const url of sources) {
+    try {
+      console.info('[map] try', url);
+      const r = await fetch(url, { cache: 'no-store' }); // avoid stale cache on Safari
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      const ct = (r.headers.get('content-type')||'').toLowerCase();
+      if (!ct.includes('image/svg')) console.warn('[map] unexpected content-type', ct);
+
+      const txt = await r.text();
+      const doc = new DOMParser().parseFromString(txt, 'image/svg+xml');
+      if (doc.querySelector('parsererror')) throw new Error('SVG parse error');
+
+      const src = doc.documentElement;
+      const vb = src.getAttribute('viewBox');
+      if (vb) hostSvg.setAttribute('viewBox', vb);
+
+      // copy shapes into our <g>
       layer.innerHTML = '';
       const ensure = (code)=>{ let g=layer.querySelector(`#${code}`); if(!g){ g=document.createElementNS('http://www.w3.org/2000/svg','g'); g.setAttribute('class','canton'); g.setAttribute('id',code); layer.appendChild(g);} return g; };
+      const scrub = (el)=>{ el.removeAttribute('class'); el.removeAttribute('style'); el.removeAttribute('fill'); el.removeAttribute('stroke'); el.removeAttribute('opacity'); };
 
       Array.from(src.querySelectorAll('g[id]')).forEach(G=>{
         const code = normId(G.getAttribute('id')); if(!code) return;
@@ -51,15 +64,21 @@ function normId(raw){
         const code = normId(sh.getAttribute('id')); if(!code) return;
         const dest = ensure(code); const c=sh.cloneNode(true); scrub(c); dest.appendChild(c);
       });
-      if (layer.querySelectorAll('.canton').length < 20) throw new Error('not enough shapes');
 
-      wireCantons(); applyMapColors(); updateCounts(); return;
-    }catch(e){ /* try next */ }
+      if (layer.querySelectorAll('.canton').length < 20) throw new Error('not-enough-shapes');
+
+      wireCantons();
+      applyMapColors();
+      updateCounts();
+      console.info('[map] loaded from', url);
+      return; // success
+    } catch (e) {
+      console.warn('[map] failed', url, e);
+    }
   }
+
   document.getElementById('counts').textContent = 'Map failed to load.';
 })();
-
-function scrub(el){ el.removeAttribute('class'); el.removeAttribute('style'); el.removeAttribute('fill'); el.removeAttribute('stroke'); el.removeAttribute('opacity'); }
 
 function ensureLabel(g, id){
   let t = g.querySelector('text.label');
@@ -70,9 +89,15 @@ function ensureLabel(g, id){
     g.appendChild(t);
   }
   // center within canton bbox
-  const bb = g.getBBox();
-  t.setAttribute('x', (bb.x + bb.width / 2));
-  t.setAttribute('y', (bb.y + bb.height / 2));
+  try {
+    const bb = g.getBBox();
+    t.setAttribute('x', (bb.x + bb.width / 2));
+    t.setAttribute('y', (bb.y + bb.height / 2));
+  } catch {
+    // very defensive: if getBBox ever fails, still place label roughly
+    t.setAttribute('x', 0);
+    t.setAttribute('y', 0);
+  }
   return t;
 }
 
@@ -88,10 +113,7 @@ function wireCantons(){
       save('mapState', mapState); applyMapColors(); updateCounts();
     });
 
-    g.addEventListener('mouseenter', ()=>{
-      const t = ensureLabel(g, id);
-      t.style.display = 'block';
-    });
+    g.addEventListener('mouseenter', ()=>{ const t = ensureLabel(g, id); t.style.display = 'block'; });
     g.addEventListener('mouseleave', ()=>{
       const owner = mapState[id];
       const t = g.querySelector('text.label');
