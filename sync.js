@@ -1,4 +1,5 @@
-// sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0), with status badge & write probe
+// sync.js — Realtime Firestore <-> localStorage (Firebase v12.1.0),
+// uses server timestamp for ordering (fixes clock-skew), plus status badge & remote reset.
 
 // 1) INLINE CONFIG
 const firebaseConfig = {
@@ -32,7 +33,7 @@ const db   = getFirestore(app);
 let uid = "anon";
 const gameRef = doc(db, "games", GAME_ID);
 
-// ===== Live status badge (helps debug remote vs. local) =====
+// ===== Live status badge (helps debug) =====
 const statusEl = (() => {
   const el = document.createElement('span');
   el.id = 'liveStatus';
@@ -47,26 +48,23 @@ const statusEl = (() => {
   return el;
 })();
 function setStatus(text, tone='info'){
-  if (!statusEl) return;
   statusEl.textContent = `Live: ${text}`;
-  // simple color cue
-  if (tone === 'ok')      statusEl.style.background = 'rgba(46,204,113,.25)';   // green-ish
-  else if (tone === 'ro') statusEl.style.background = 'rgba(241,196,15,.25)';   // amber
-  else if (tone === 'err')statusEl.style.background = 'rgba(231,76,60,.25)';    // red-ish
-  else                    statusEl.style.background = 'rgba(255,255,255,.15)';  // default
+  if (tone === 'ok')      statusEl.style.background = 'rgba(46,204,113,.25)';
+  else if (tone === 'ro') statusEl.style.background = 'rgba(241,196,15,.25)';
+  else if (tone === 'err')statusEl.style.background = 'rgba(231,76,60,.25)';
+  else                    statusEl.style.background = 'rgba(255,255,255,.15)';
 }
 setStatus('connecting…');
 
 // 5) Local <-> Remote state
 let applyingRemote = false;
 let pushTimer = null;
-let lastRemoteRev = 0;
 let writeable = false;
+// Use server time from Firestore to order snapshots (fix clock skew)
+let lastRemoteMillis = 0;
 
 function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
-function packLocal(){
-  const x={}; for (const k of KEYS){ const v = localStorage.getItem(k); x[k] = safeParse(v); } return x;
-}
+function packLocal(){ const x={}; for (const k of KEYS){ x[k] = safeParse(localStorage.getItem(k)); } return x; }
 function applyLocal(data){
   applyingRemote = true;
   try {
@@ -81,19 +79,14 @@ function schedulePush(){ if (applyingRemote || !writeable) return; clearTimeout(
 async function pushNow(){
   try{
     const payload = packLocal();
-    const rev = Date.now();
-    lastRemoteRev = rev;
     await setDoc(
       gameRef,
-      { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...payload },
+      { _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:1 }, ...payload },
       { merge:true }
     );
   }catch(err){
     console.warn('[sync] push failed:', err?.code || err?.message || err);
-    // Likely permission denied -> mark read-only and re-probe
-    writeable = false;
-    setStatus('read-only', 'ro');
-    // try probe again after a bit
+    writeable = false; setStatus('read-only', 'ro');
     setTimeout(probeWrite, 1500);
   }
 }
@@ -123,14 +116,13 @@ function initialSnapshot(){
 async function doRemoteReset(){
   if (!writeable) { alert('This device is read-only (not signed in). Try another device/network.'); return; }
   const snap = initialSnapshot();
-  const rev  = Date.now();
-  lastRemoteRev = rev;
   await setDoc(
     gameRef,
-    { _meta:{rev,updatedAt:serverTimestamp(),updatedBy:uid,version:1}, ...snap },
+    { _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:1 }, ...snap },
     { merge:true }
   );
-  applyLocal(snap); // immediately replace local state, too
+  // Apply locally; next snapshot will also confirm and carry server time
+  applyLocal(snap);
 }
 window.daegSyncReset = doRemoteReset;
 
@@ -138,54 +130,46 @@ window.daegSyncReset = doRemoteReset;
 async function probeWrite(){
   try{
     await setDoc(gameRef, { _probe:{ t: serverTimestamp() } }, { merge:true });
-    writeable = true;
-    setStatus('writeable', 'ok');
+    writeable = true; setStatus('writeable', 'ok');
   }catch(err){
-    writeable = false;
-    // auth/operation-not-allowed -> Anonymous not enabled
-    // permission-denied -> not signed in or rules
-    // network errors -> endpoints blocked
+    writeable = false; setStatus('read-only', 'ro');
     console.warn('[sync] write probe failed:', err?.code || err?.message || err);
-    setStatus('read-only', 'ro');
   }
 }
 
-// 8) Start: sign-in, seed/apply, realtime listener
+// 8) Start: sign-in, seed/apply, realtime listener (ordered by server time)
 async function start(){
   try {
-    if (!auth.currentUser) {
-      try { await signInAnonymously(auth); } catch (e) { console.warn('[sync] signInAnonymously failed:', e); }
-    }
+    if (!auth.currentUser) { try { await signInAnonymously(auth); } catch (e) { console.warn('[sync] signInAnonymously failed:', e); } }
     uid = auth.currentUser?.uid || "anon";
 
-    // Try to read remote
     const snap = await getDoc(gameRef);
     if (snap.exists()){
       const data = snap.data()||{};
-      lastRemoteRev = (data._meta && data._meta.rev) || 0;
+      const ts = data._meta && data._meta.updatedAt;
+      lastRemoteMillis = (ts && typeof ts.toMillis === 'function') ? ts.toMillis() : 0;
       applyLocal(data);
     } else {
-      // seed remote from current local (may fail if read-only)
       try { await pushNow(); } catch {}
     }
 
-    // Realtime listener (reads still work in read-only)
     onSnapshot(gameRef, s=>{
       if (!s.exists()) return;
       const data = s.data()||{};
-      const rev = (data._meta && data._meta.rev) || 0;
-      if (rev > lastRemoteRev){
+      // Prefer server timestamp to gate duplicates; if missing, apply anyway
+      const ts = data._meta && data._meta.updatedAt;
+      const ms = (ts && typeof ts.toMillis === 'function') ? ts.toMillis() : 0;
+
+      if (ms === 0 || ms > lastRemoteMillis){
         applyLocal(data);
-        lastRemoteRev = rev;
+        if (ms > 0) lastRemoteMillis = ms;
       }
     }, err => console.error("Firestore onSnapshot error:", err));
 
-    // Finally check if we can write
     await probeWrite();
   } catch (e) {
     console.error('[sync] fatal start error:', e);
     setStatus('error', 'err');
   }
 }
-
 start();
