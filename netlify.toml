@@ -1,8 +1,7 @@
 [build]
-  # Static site; no build command needed.
   publish = "."
 
-# Global security and CSP headers
+# --- Global security/CSP headers (unchanged) ---
 [[headers]]
   for = "/*"
   [headers.values]
@@ -28,3 +27,48 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "SAMEORIGIN"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# --- Caching rules to avoid manual ?v bumps ---
+
+# HTML should NEVER be cached (always fetch fresh)
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+# These change often; always fetch fresh
+[[headers]]
+  for = "/sync.js"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/map.js"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/numbers.js"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/points.js"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/shared.js"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+[[headers]]
+  for = "/styles.css"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+
+# Static assets can be cached normally
+[[headers]]
+  for = "/ch.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
