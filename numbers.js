@@ -24,6 +24,9 @@ PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
 renderLogFromStorage();
 renderTasksTable();
 
+/* ---------- cross-device live refresh ---------- */
+window.addEventListener("daeg-sync-apply", handleExternalUpdate);
+
 /* ---------- events ---------- */
 Object.keys(btns).forEach(p => btns[p].addEventListener("click", () => handlePress(p)));
 resetBtn.addEventListener("click", () => {
@@ -94,7 +97,7 @@ function appendLogRow(e, newestOnTop){
         const taskText = logEntries[idx].task || '';
 
         addPoints(player, 500);                        // update balance
-        appendPointsLog(player, 500, taskText, e.id);  // <-- store link to this numbers-entry id
+        appendPointsLog(player, 500, taskText, e.id);  // link to this numbers-entry id
 
         logEntries[idx].claimed = true;
         saveJson("logEntries", logEntries);
@@ -169,4 +172,20 @@ function clearChildren(el){ while (el && el.firstChild) el.removeChild(el.firstC
 function renderStatus(){
   const left = L => TOTAL - (used[L] ? used[L].size : 0);
   statusEl.textContent = `Numbers left — D: ${left("D")}, Ä: ${left("Ä")}, G: ${left("G")}`;
+}
+
+/* ---------- external update handler ---------- */
+function handleExternalUpdate(){
+  let u = loadJson("usedSets", { D:[], Ä:[], G:[] });
+  Object.keys(u).forEach(k => u[k] = new Set(u[k] || []));
+  used = u;
+  logEntries = loadJson("logEntries", []);
+  tasks = loadJson("tasksByNumber", tasks);
+
+  Object.values(btns).forEach(b => b.disabled = false);
+  PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
+
+  clearChildren(logBody); renderLogFromStorage();
+  renderTasksTable();
+  renderStatus();
 }
