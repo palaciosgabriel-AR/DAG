@@ -1,9 +1,10 @@
-// sync.js — Firestore <-> localStorage (Firebase v12.1.0)
-// - Uses server timestamp ordering (fixes clock skew)
+// sync.js — Firestore <-> localStorage realtime sync (Firebase v12.1.0)
 // - Status badge ("writeable"/"read-only")
-// - Remote reset support
-// - NEW: explicit touch() for immediate pushes + safe heartbeat (only pushes when state changed)
+// - Server timestamp ordering (avoids clock-skew issues)
+// - Heartbeat + explicit touch() for reliable pushes
+// - Remote Reset now PRESERVES tasksByNumber
 
+/* ---------- Config ---------- */
 const firebaseConfig = {
   apiKey: "AIzaSyBukCK_qvHrHqkUYR90ch25vV_tsbe2RBo",
   authDomain: "daeg-d59cf.firebaseapp.com",
@@ -13,26 +14,30 @@ const firebaseConfig = {
   appId: "1:862000912172:web:27e96ecff42a6806897e89",
   measurementId: "G-Y0LLM4HYLP"
 };
-const GAME_ID = "DAEG";
+const GAME_ID = "DAEG"; // do not change (per your request)
 
+/* ---------- Firebase (ESM from CDN) ---------- */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import {
+  getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
+/* ---------- State keys to sync ---------- */
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
   "dark","activePlayer","lastPlayer"
 ];
 
+/* ---------- Init ---------- */
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
-
 let uid = "anon";
 const gameRef = doc(db, "games", GAME_ID);
 
-// ===== Status badge =====
+/* ---------- Live status badge ---------- */
 const statusEl = (() => {
   const el = document.createElement('span');
   el.id = 'liveStatus';
@@ -56,18 +61,16 @@ function setStatus(text, tone='info'){
 }
 setStatus('connecting…');
 
-// ===== Sync state =====
+/* ---------- Sync engine ---------- */
 let applyingRemote = false;
 let pushTimer = null;
 let writeable = false;
-let lastRemoteMillis = 0;
-
-// For heartbeat dedupe
-let lastSentFingerprint = '';
+let lastRemoteMillis = 0;          // gate on server time
+let lastSentFingerprint = '';      // dedupe pushes
 
 function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
-function packLocal(){ const x={}; for (const k of KEYS){ x[k] = safeParse(localStorage.getItem(k)); } return x; }
-function fingerprint(obj){ try { return JSON.stringify(obj); } catch { return String(Math.random()); } }
+function packLocal(){ const x={}; for (const k of KEYS) x[k] = safeParse(localStorage.getItem(k)); return x; }
+function fingerprint(obj){ try { return JSON.stringify(obj); } catch { return Math.random().toString(36); } }
 
 function applyLocal(data){
   applyingRemote = true;
@@ -81,8 +84,7 @@ async function pushNow(){
   try{
     const payload = packLocal();
     const fp = fingerprint(payload);
-    // If nothing has changed since our last successful push, skip (prevents chatter)
-    if (fp === lastSentFingerprint) return;
+    if (fp === lastSentFingerprint) return; // nothing changed
 
     await setDoc(
       gameRef,
@@ -90,7 +92,6 @@ async function pushNow(){
       { merge:true }
     );
     lastSentFingerprint = fp;
-    // console.info('[sync] pushed', new Date().toISOString());
   }catch(err){
     console.warn('[sync] push failed:', err?.code || err?.message || err);
     writeable = false; setStatus('read-only', 'ro');
@@ -98,24 +99,25 @@ async function pushNow(){
   }
 }
 
-// Global touch helper — call this after important state changes
-window.daegSyncTouch = function(/*key?*/){ schedulePush(); };
+// Export a nudge for important state changes
+window.daegSyncTouch = function(){ schedulePush(); };
 
-// Hook localStorage so any app change gets synced too
+/* Hook localStorage so normal app changes also push */
 const _set = localStorage.setItem.bind(localStorage);
 localStorage.setItem = function(k, v){
   _set(k, v);
   if (KEYS.includes(k) && !applyingRemote) schedulePush();
 };
 
-// ===== Remote RESET (used by Reset All button) =====
-function initialSnapshot(){
+/* ---------- Remote RESET (now preserves tasks) ---------- */
+/** Build a fresh snapshot while keeping tasksByNumber intact. */
+function initialSnapshot(preservedTasks){
   const currentDark = localStorage.getItem('dark') || '0';
   return {
     dark: currentDark,
     usedSets: { D:[], Ä:[], G:[] },
     logEntries: [],
-    tasksByNumber: {},
+    tasksByNumber: preservedTasks || {},     // <<< keep tasks
     playerPoints: { D:500, Ä:500, G:500 },
     pointsLog: [],
     mapState: {},
@@ -123,21 +125,32 @@ function initialSnapshot(){
     lastPlayer: 'D'
   };
 }
+
 async function doRemoteReset(){
   if (!writeable) { alert('This device is read-only (not signed in). Try another device/network.'); return; }
-  const snap = initialSnapshot();
+
+  // Try to preserve tasks from server first; fall back to local if needed.
+  let preservedTasks = {};
+  try {
+    const snap = await getDoc(gameRef);
+    if (snap.exists()) preservedTasks = (snap.data()?.tasksByNumber) || {};
+  } catch { /* ignore */ }
+  if (!preservedTasks || Object.keys(preservedTasks).length === 0) {
+    preservedTasks = packLocal().tasksByNumber || {};
+  }
+
+  const fresh = initialSnapshot(preservedTasks);
   await setDoc(
     gameRef,
-    { _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:1 }, ...snap },
+    { _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:1 }, ...fresh },
     { merge:true }
   );
-  applyLocal(snap);
-  // Ensure fresh fingerprint so the next user change pushes again
-  lastSentFingerprint = fingerprint(snap);
+  applyLocal(fresh);
+  lastSentFingerprint = fingerprint(fresh); // keep heartbeat quiet until next change
 }
 window.daegSyncReset = doRemoteReset;
 
-// ===== Write probe =====
+/* ---------- Write probe ---------- */
 async function probeWrite(){
   try{
     await setDoc(gameRef, { _probe:{ t: serverTimestamp() } }, { merge:true });
@@ -148,12 +161,13 @@ async function probeWrite(){
   }
 }
 
-// ===== Start (ordered by server time) =====
+/* ---------- Start ---------- */
 async function start(){
   try {
-    if (!auth.currentUser) { try { await signInAnonymously(auth); } catch (e) { console.warn('[sync] signInAnonymously failed:', e); } }
+    if (!auth.currentUser) { try { await signInAnonymously(auth); } catch (e) { console.warn('[sync] anon sign-in failed:', e); } }
     uid = auth.currentUser?.uid || "anon";
 
+    // First load
     const snap = await getDoc(gameRef);
     if (snap.exists()){
       const data = snap.data()||{};
@@ -165,23 +179,22 @@ async function start(){
       try { await pushNow(); } catch {}
     }
 
+    // Realtime updates (ordered by server time)
     onSnapshot(gameRef, s=>{
       if (!s.exists()) return;
       const data = s.data()||{};
       const ts = data._meta && data._meta.updatedAt;
       const ms = (ts && typeof ts.toMillis === 'function') ? ts.toMillis() : 0;
-
       if (ms === 0 || ms > lastRemoteMillis){
         applyLocal(data);
         if (ms > 0) lastRemoteMillis = ms;
-        // receiving remote update means our local fingerprint may now match
         lastSentFingerprint = fingerprint(packLocal());
       }
     }, err => console.error("Firestore onSnapshot error:", err));
 
     await probeWrite();
 
-    // Heartbeat: push only if local state changed since last push
+    // Heartbeat: push only when something actually changed
     setInterval(()=>{ if (writeable && !applyingRemote) pushNow(); }, 5000);
 
   } catch (e) {
