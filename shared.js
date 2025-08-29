@@ -1,5 +1,5 @@
 (function () {
-  // Theme -------------------------------------------------------
+  // ---------------- Theme ----------------
   var darkToggle = document.getElementById('darkToggle');
   var initialDark = localStorage.getItem('dark') === '1';
   document.body.classList.toggle('dark', initialDark);
@@ -12,10 +12,11 @@
     });
   }
 
-  // Helpers -----------------------------------------------------
+  // ---------------- Small helpers ----------------
   function get(k, d){ try { return JSON.parse(localStorage.getItem(k) || JSON.stringify(d)); } catch(e){ return d; } }
   function set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
 
+  // ---------------- Export / Import / Reset all ----------------
   function snapshotAll() {
     return {
       __version: 2,
@@ -32,7 +33,6 @@
     };
   }
 
-  // Export / Import / Reset all --------------------------------
   var exportBtn = document.getElementById('exportData');
   var importInput = document.getElementById('importFile');
   var resetAll = document.getElementById('resetAll');
@@ -53,7 +53,6 @@
         var snap = JSON.parse(reader.result);
         if (window.daegSyncRestore) window.daegSyncRestore(snap);
         else {
-          // Fallback local-only
           Object.keys(snap).forEach(function(k){ set(k, snap[k]); });
           location.reload();
         }
@@ -66,11 +65,44 @@
     if (!confirm('Reset ALL (keep tasks)?')) return;
     if (window.daegSyncReset) window.daegSyncReset();
     else {
-      // Fallback local-only: keep tasks
       var tasks = get('tasksByNumber', {});
       localStorage.clear();
       set('tasksByNumber', tasks);
       location.reload();
     }
   });
+
+  // ---------------- Who am I? picker in the header ----------------
+  function getMyPlayer(){ 
+    var p = localStorage.getItem('myPlayer') || 'D';
+    return (p==='D'||p==='Ä'||p==='G') ? p : 'D';
+  }
+  function setMyPlayer(p){
+    localStorage.setItem('myPlayer', p);
+    localStorage.setItem('lastPlayer', p);
+    // Let pages react immediately if they want
+    try { window.dispatchEvent(new CustomEvent('daeg-player-change', { detail:{ player:p } })); } catch(_){}
+  }
+
+  var topbar = document.querySelector('.topbar');
+  if (topbar) {
+    var wrap = document.createElement('div');
+    wrap.className = 'whoami';
+    wrap.style.cssText = 'display:flex;gap:.45rem;align-items:center;justify-self:end;';
+    var lbl = document.createElement('span');
+    lbl.textContent = 'I am:';
+    var sel = document.createElement('select');
+    ['D','Ä','G'].forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+    sel.value = getMyPlayer();
+    sel.addEventListener('change', function(){ setMyPlayer(sel.value); });
+    wrap.appendChild(lbl); wrap.appendChild(sel);
+
+    // insert just before Night mode toggle if present, else at end of header
+    var anchor = document.querySelector('.toggle');
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
+    else topbar.appendChild(wrap);
+  }
+
+  // If not set yet, default to D
+  if (!localStorage.getItem('myPlayer')) setMyPlayer('D');
 })();
