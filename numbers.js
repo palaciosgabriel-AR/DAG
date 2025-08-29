@@ -12,7 +12,6 @@ Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
 let logEntries = loadJson("logEntries", []);               // [{id,t,p,n,task,claimed}]
 let tasks      = loadJson("tasksByNumber", emptyTasks());  // {"1":"..."}
 
-/* ---------- helpers ---------- */
 function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
 function canEdit(){ return typeof window.canEdit === 'function' ? window.canEdit() : true; }
 
@@ -22,7 +21,6 @@ renderLogFromStorage();
 renderTasksTable();
 updateEditability();
 
-/* live refresh from sync + runner state changes */
 window.addEventListener("daeg-sync-apply", handleExternalUpdate);
 window.addEventListener("daeg-edit-state", updateEditability);
 
@@ -38,6 +36,7 @@ drawBtn.addEventListener("click", () => {
     const entry = { id: uid(), t: fmt(ts), p, n: "—", task: "", claimed: true };
     logEntries.push(entry); saveJson("logEntries", logEntries);
     appendLogRow(entry, true);
+    window.daegSyncTouch?.();
     return;
   }
 
@@ -73,7 +72,6 @@ function persistUsed(){
 /* ---------- log rendering ---------- */
 function appendLogRow(e, newestOnTop){
   if (!logBody) return;
-
   const tr = document.createElement("tr");
   const tdTime  = document.createElement("td"); tdTime.textContent = e.t;
   const tdP     = document.createElement("td"); tdP.textContent = e.p;
@@ -106,7 +104,6 @@ function appendLogRow(e, newestOnTop){
   }
 
   tr.append(tdTime, tdP, tdNum, tdTask, tdClaim);
-
   if (newestOnTop && logBody.firstChild) logBody.insertBefore(tr, logBody.firstChild);
   else logBody.appendChild(tr);
 }
@@ -130,14 +127,9 @@ function renderTasksTable(){
     inp.setAttribute("data-num", String(i));
     inp.placeholder = `Enter task for ${i}`;
     const saveIt = () => {
-      if (!canEdit()) return; // runner-only edits
-      const key = String(i);
-      const val = inp.value;
-      if (tasks[key] !== val) {
-        tasks[key] = val;
-        saveJson("tasksByNumber", tasks);
-        window.daegSyncTouch?.();
-      }
+      if (!canEdit()) return;
+      const k = String(i); const v = inp.value;
+      if (tasks[k] !== v) { tasks[k] = v; saveJson("tasksByNumber", tasks); window.daegSyncTouch?.(); }
     };
     inp.addEventListener("input", saveIt);
     inp.addEventListener("change", saveIt);
@@ -150,29 +142,25 @@ function renderTasksTable(){
 }
 
 function setTasksInputsDisabled(disabled){
-  const inputs = tasksBody.querySelectorAll('input[type="text"][data-num]');
-  inputs.forEach(inp => { inp.disabled = !!disabled; });
+  tasksBody.querySelectorAll('input[type="text"][data-num]').forEach(inp => { inp.disabled = !!disabled; });
 }
 
-/* ---------- external update handler ---------- */
+/* ---------- external update ---------- */
 function handleExternalUpdate(){
   let u = loadJson("usedSets", { D:[], Ä:[], G:[] });
   Object.keys(u).forEach(k => u[k] = new Set(u[k] || []));
   used = u;
   logEntries = loadJson("logEntries", []);
   tasks = loadJson("tasksByNumber", tasks);
-
   clearChildren(logBody); renderLogFromStorage();
   renderStatus();
 
-  // refresh task inputs, preserving focus if editing and still runner
   const active = document.activeElement;
   const editing = active && tasksBody.contains(active) && active.tagName === 'INPUT' && canEdit();
   if (!editing) renderTasksTable();
   else {
     const activeNum = active.getAttribute('data-num');
-    const inputs = tasksBody.querySelectorAll('input[data-num]');
-    inputs.forEach(inp=>{
+    tasksBody.querySelectorAll('input[data-num]').forEach(inp=>{
       const num = inp.getAttribute('data-num');
       if (num !== activeNum) {
         const val = tasks[String(num)] || '';
@@ -182,15 +170,13 @@ function handleExternalUpdate(){
   }
 }
 
-/* ----- editability toggles ----- */
 function updateEditability(){
   const editable = canEdit();
-  // Toggle all runner-only controls
   document.querySelectorAll('.runner-only').forEach(el => { el.disabled = !editable; });
   setTasksInputsDisabled(!editable);
 }
 
-/* ---------- cross-page points credit + logging ---------- */
+/* ---------- cross-page points ---------- */
 function addPoints(player, amount){
   const pts = loadJson("playerPoints", { D:500, Ä:500, G:500 });
   pts[player] = (pts[player] || 0) + amount;
