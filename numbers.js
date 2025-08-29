@@ -1,4 +1,4 @@
-/* ===== Tasks page: single Draw for myPlayer; runner-gated in handlers (ES2018) ===== */
+/* ===== Tasks page (no runner gating) ===== */
 var TOTAL = 26;
 
 var statusEl  = document.getElementById("status");
@@ -7,14 +7,12 @@ var tasksBody = document.getElementById("tasksBody");
 var resetBtn  = document.getElementById("reset");
 var drawBtn   = document.getElementById("btn-draw");
 
-// Always quote non-ASCII keys
 var used = loadJson("usedSets", { "D": [], "Ä": [], "G": [] });
 Object.keys(used).forEach(function(k){ used[k] = new Set(used[k] || []); });
 var logEntries = loadJson("logEntries", []);               // [{id,t,p,n,task,claimed}]
 var tasks      = loadJson("tasksByNumber", emptyTasks());  // {"1":"..."}
 
 function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
-function canEdit(){ return (typeof window.canEdit === 'function') ? window.canEdit() : true; }
 
 /* ---------- init ---------- */
 renderStatus();
@@ -25,8 +23,6 @@ window.addEventListener("daeg-sync-apply", handleExternalUpdate);
 
 /* ---------- events ---------- */
 drawBtn.addEventListener("click", function(){
-  if (!canEdit()) { alert('Runner only.'); return; }
-
   var p = myPlayer();
   var set = used[p] || new Set();
   var n = nextAvailableFrom(rand1toN(TOTAL), set);
@@ -51,7 +47,6 @@ drawBtn.addEventListener("click", function(){
 });
 
 resetBtn.addEventListener("click", function(){
-  if (!canEdit()) { alert('Runner only.'); return; }
   if (!confirm("Reset numbers & log? (Tasks are kept)")) return;
   used = { "D": new Set(), "Ä": new Set(), "G": new Set() };
   logEntries = [];
@@ -59,7 +54,7 @@ resetBtn.addEventListener("click", function(){
   saveJson("logEntries", logEntries);
   clearChildren(logBody);
   renderStatus();
-  if (window.daegSyncTouch) window.daegSyncTouch();
+  if (window.daegSyncReset) window.daegSyncReset(); else if (window.daegSyncTouch) window.daegSyncTouch();
 });
 
 /* ---------- persist ---------- */
@@ -87,7 +82,6 @@ function appendLogRow(e, newestOnTop){
     btn.textContent = e.claimed ? "✓ Claimed" : "+500";
     btn.disabled = !!e.claimed;
     btn.addEventListener("click", function(){
-      if (!canEdit()) { alert('Runner only.'); return; }
       if (btn.disabled) return;
       var idx = -1;
       for (var i=0;i<logEntries.length;i++){ if (logEntries[i].id === e.id){ idx=i; break; } }
@@ -129,15 +123,9 @@ function renderTasksTable(){
     inp.value = tasks[String(i)] || "";
     inp.setAttribute("data-num", String(i));
     inp.placeholder = "Enter task for " + i;
-    var saveIt = function(ev){
-      if (!canEdit()) return;
-      var k = String(i); // i from loop — we bind via attribute below
-      // use ev.target to get current value/num
-    };
-    // bind with closure-safe handler
+
     (function(num, inputEl){
       function doSave(){
-        if (!canEdit()) return;
         var k = String(num);
         var v = inputEl.value;
         if (tasks[k] !== v) { tasks[k] = v; saveJson("tasksByNumber", tasks); if (window.daegSyncTouch) window.daegSyncTouch(); }
