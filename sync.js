@@ -2,8 +2,8 @@
 // - Firebase v12.1.0 ESM (CDN)
 // - Per-key revision map (prevents stale overwrites)
 // - Import/Restore to cloud, Reset (keeps tasks), Tasks lock
-// - Robust "apply" rules so new devices & blank caches adopt server state
-// - Minimal logging (can be turned off by setting DEBUG=false)
+// - Robust "apply" so blank devices adopt server state
+// - daegSyncReset() now returns a Promise and throws on errors
 
 /* ---------- Config ---------- */
 const firebaseConfig = {
@@ -15,17 +15,12 @@ const firebaseConfig = {
   appId: "1:862000912172:web:27e96ecff42a6806897e89",
   measurementId: "G-Y0LLM4HYLP"
 };
-const GAME_ID = "DAEG"; // your live doc
-
-// All keys we sync (including tasksLocked)
+const GAME_ID = "DAEG";
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
-  "dark","activePlayer","lastPlayer",
-  "tasksLocked"
+  "dark","activePlayer","lastPlayer","tasksLocked"
 ];
-
-// Debug logging toggle
 const DEBUG = true;
 function log(...a){ if (DEBUG) console.log("[sync]", ...a); }
 function warn(...a){ console.warn("[sync]", ...a); }
@@ -70,21 +65,6 @@ function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return
 function packLocal(){ const x={}; for (const k of KEYS) x[k] = safeParse(localStorage.getItem(k)); return x; }
 function fingerprint(obj){ try { return JSON.stringify(obj); } catch { return Math.random().toString(36); } }
 
-function isEmptyTasks(obj){
-  if (!obj || typeof obj !== 'object') return true;
-  const ks = Object.keys(obj);
-  if (ks.length === 0) return true;
-  for (const k of ks){
-    const v = obj[k];
-    if (String(v||'').trim() !== '') return false;
-  }
-  return true;
-}
-function hasAnyTasks(obj){
-  if (!obj || typeof obj !== 'object') return false;
-  return Object.values(obj).some(v => String(v||'').trim() !== '');
-}
-
 /* ---------- Per-key revision map ---------- */
 let revMap = safeParse(localStorage.getItem('revMap')) || {}; // {key:int}
 function saveRevMap(){ localStorage.setItem('revMap', JSON.stringify(revMap)); }
@@ -99,10 +79,24 @@ let lastSentFingerprint = '';
 const changedKeys = new Set();
 
 /* ---------- Apply remote (stable rules) ---------- */
+function isEmptyTasks(obj){
+  if (!obj || typeof obj !== 'object') return true;
+  const ks = Object.keys(obj);
+  if (ks.length === 0) return true;
+  for (const k of ks){
+    if (String(obj[k] ?? '').trim() !== '') return false;
+  }
+  return true;
+}
+function hasAnyTasks(obj){
+  if (!obj || typeof obj !== 'object') return false;
+  return Object.values(obj).some(v => String(v ?? '').trim() !== '');
+}
+
 function applyRemote(data){
   const incomingRev = data.revMap || {};
 
-  // Merge remote counters first so comparisons are fair
+  // Merge counters first so comparisons are fair
   if (data.revMap && typeof data.revMap === 'object') {
     revMap = { ...revMap, ...data.revMap };
     saveRevMap();
@@ -110,7 +104,6 @@ function applyRemote(data){
 
   applyingRemote = true;
   let anyChanged = false;
-
   try {
     for (const k of KEYS){
       if (!(k in data)) continue;
@@ -122,43 +115,29 @@ function applyRemote(data){
 
       let shouldApply = false;
 
-      // 1) If local missing -> adopt remote
-      if (!localHasValue) {
-        shouldApply = true;
-      }
-      // 2) Otherwise, adopt only if remote rev is strictly newer
-      else if (incRev > locRev) {
-        shouldApply = true;
-      }
-      // 3) Healing for tasks: if local tasks are empty-ish but remote has content, adopt
-      else if (k === 'tasksByNumber') {
+      if (!localHasValue) shouldApply = true;               // adopt if missing
+      else if (incRev > locRev) shouldApply = true;         // adopt newer
+      else if (k === 'tasksByNumber') {                      // heal blank tasks
         const localVal  = safeParse(localStr);
         const remoteVal = data[k];
-        if (isEmptyTasks(localVal) && hasAnyTasks(remoteVal)) {
-          shouldApply = true;
-        }
+        if (isEmptyTasks(localVal) && hasAnyTasks(remoteVal)) shouldApply = true;
       }
 
       if (shouldApply){
         localStorage.setItem(k, JSON.stringify(data[k]));
-        revMap[k] = incRev; // adopt remote counter we just applied
+        revMap[k] = incRev;
         anyChanged = true;
         log("applied", k, "(incRev:", incRev, "locRev:", locRev, ")");
       }
     }
     if (anyChanged) saveRevMap();
-  } finally {
-    applyingRemote = false;
-  }
+  } finally { applyingRemote = false; }
 
-  if (anyChanged) {
-    window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
-  }
+  if (anyChanged) window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
 
 /* ---------- Push changes ---------- */
 function schedulePush(){ if (applyingRemote || !writeable) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 200); }
-
 async function pushNow(){
   try{
     if (changedKeys.size === 0) return;
@@ -167,7 +146,7 @@ async function pushNow(){
     const payload = {};
     for (const k of changedKeys){ if (k in allLocal) payload[k] = allLocal[k]; }
 
-    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:7 }, ...payload };
+    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:8 }, ...payload };
     const fp = fingerprint(sendBody);
     if (fp === lastSentFingerprint) return;
 
@@ -179,10 +158,9 @@ async function pushNow(){
     warn("push failed:", err?.code || err?.message || err);
     writeable = false; setStatus('read-only', 'ro');
     setTimeout(probeWrite, 1500);
+    throw err;
   }
 }
-
-/* Expose a nudge */
 window.daegSyncTouch = function(){ schedulePush(); };
 
 /* Intercept local writes: bump rev + mark changed */
@@ -216,7 +194,7 @@ function initialSnapshot(preservedTasks){
     dark: currentDark,
     usedSets: { D:[], Ä:[], G:[] },
     logEntries: [],
-    tasksByNumber: preservedTasks || {},
+    tasksByNumber: preservedTasks || {},   // keep tasks
     playerPoints: { D:500, Ä:500, G:500 },
     pointsLog: [],
     mapState: {},
@@ -224,9 +202,15 @@ function initialSnapshot(preservedTasks){
     lastPlayer: 'D'
   };
 }
-async function doRemoteReset(){
-  if (!writeable) { alert('This device is read-only (not signed in). Try another device/network.'); return; }
 
+/** Cloud reset that preserves tasks; returns Promise, throws on failure. */
+async function doRemoteReset(){
+  if (!writeable) {
+    alert('This device is read-only (not signed in). Try another device/network.');
+    throw new Error('read-only');
+  }
+
+  // Prefer server tasks; else local
   let preservedTasks = {};
   try { const snap = await getDoc(gameRef); if (snap.exists()) preservedTasks = snap.data()?.tasksByNumber || {}; } catch {}
   if (!preservedTasks || Object.keys(preservedTasks).length === 0) preservedTasks = packLocal().tasksByNumber || {};
@@ -238,13 +222,22 @@ async function doRemoteReset(){
     bumpRev(k); changedKeys.add(k);
   }
 
+  // Apply locally first (without bumping again)
   applyingRemote = true;
   try { for (const k of Object.keys(fresh)) localStorage.setItem(k, JSON.stringify(fresh[k])); }
   finally { applyingRemote = false; }
 
-  await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:7 }, ...fresh }, { merge:true });
-  changedKeys.clear();
-  window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
+  // Push to Firestore with updated revMap
+  try {
+    await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:8 }, ...fresh }, { merge:true });
+  } catch (e) {
+    warn('reset push failed:', e);
+    throw e;
+  } finally {
+    changedKeys.clear();
+    window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
+  }
+  return true;
 }
 window.daegSyncReset = doRemoteReset;
 
@@ -268,12 +261,11 @@ async function start(){
     }
     uid = auth.currentUser?.uid || "anon";
 
-    // Initial remote read (if exists)
+    // Initial apply
     try{
       const snap = await getDoc(gameRef);
       if (snap.exists()){
-        const data = snap.data() || {};
-        applyRemote(data);
+        applyRemote(snap.data() || {});
       } else {
         log("no remote doc yet; will create on first change");
       }
@@ -286,8 +278,6 @@ async function start(){
     );
 
     await probeWrite();
-
-    // Heartbeat: only pushes if there are pending changes
     setInterval(()=>{ if (writeable && !applyingRemote) pushNow(); }, 5000);
   } catch (e) {
     warn("fatal start error:", e);
