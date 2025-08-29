@@ -18,18 +18,20 @@
 
   function snapshotAll() {
     return {
-      __version: 2,
+      __version: 3,
       exportedAt: new Date().toISOString(),
       dark: localStorage.getItem('dark') || '0',
       usedSets: get('usedSets', {"D":[],"Ä":[],"G":[]}),
       logEntries: get('logEntries', []),
       tasksByNumber: get('tasksByNumber', {}),
+      // keep tasksRev if your current build still uses it; harmless if absent
+      tasksRev: get('tasksRev', {}),
       playerPoints: get('playerPoints', {"D":500,"Ä":500,"G":500}),
       pointsLog: get('pointsLog', []),
       mapState: get('mapState', {}),
       activePlayer: localStorage.getItem('activePlayer') || 'D',
       lastPlayer: localStorage.getItem('lastPlayer') || 'D',
-      tasksLocked: get('tasksLocked', false)   // NEW: include lock flag in exports
+      tasksLocked: get('tasksLocked', false)
     };
   }
 
@@ -38,6 +40,7 @@
     if (s.usedSets) set('usedSets', s.usedSets);
     if (s.logEntries) set('logEntries', s.logEntries);
     if (s.tasksByNumber) set('tasksByNumber', s.tasksByNumber);
+    if (s.tasksRev) set('tasksRev', s.tasksRev);
     if (s.playerPoints) set('playerPoints', s.playerPoints);
     if (s.pointsLog) set('pointsLog', s.pointsLog);
     if (s.mapState) set('mapState', s.mapState);
@@ -65,14 +68,11 @@
     reader.onload = async () => {
       try {
         const parsed = JSON.parse(reader.result);
-        // Prefer cloud-safe restore if available
         if (typeof window.daegSyncRestore === 'function') {
-          await window.daegSyncRestore(parsed);
+          await window.daegSyncRestore(parsed);   // push to cloud with revs
         } else {
-          // fallback: local only (not recommended)
-          applySnapshot(parsed);
+          applySnapshot(parsed);                  // local fallback
         }
-        // Optional: refresh UI (not strictly necessary, but keeps page consistent)
         location.reload();
       } catch (err) {
         console.error('Import failed:', err);
@@ -82,17 +82,30 @@
     reader.readAsText(f);
   });
 
-  resetAll?.addEventListener('click', () => {
-    if (confirm('Reset ALL saved data (numbers, tasks, log, points, map)? Tasks will be kept.')) {
+  // FIXED: await the cloud reset; show progress; fall back safely if sync not loaded
+  resetAll?.addEventListener('click', async () => {
+    if (!confirm('Reset ALL data (numbers, points, map, logs). Tasks are kept. Proceed?')) return;
+    const btn = resetAll;
+    const originalText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Resetting…';
+
+    try {
       if (typeof window.daegSyncReset === 'function') {
-        window.daegSyncReset();
+        await window.daegSyncReset();            // <- ensures Firestore is updated
       } else {
-        // fallback local reset
-        const preservedTasks = get('tasksByNumber', {});
+        // fallback local-only reset (keeps tasks & tasksRev)
+        const t = get('tasksByNumber', {});
+        const r = get('tasksRev', {});
         localStorage.clear();
-        set('tasksByNumber', preservedTasks);
-        location.reload();
+        set('tasksByNumber', t);
+        if (r && Object.keys(r).length) set('tasksRev', r);
       }
+      // give onSnapshot a tick to apply everywhere
+      setTimeout(()=>location.reload(), 250);
+    } catch (e) {
+      console.error('Reset failed:', e);
+      alert('Reset failed. See console for details.');
+      btn.disabled = false; btn.textContent = originalText;
     }
   });
 })();
