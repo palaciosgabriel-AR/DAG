@@ -81,7 +81,10 @@ function wireCantons(){
       else if (owner === me) delete mapState[id];
       else mapState[id] = me;
       save('mapState', mapState);
+
+      // Immediate UI update
       applyMapColors(); updateCounts();
+
       if (window.daegSyncTouch) window.daegSyncTouch();
     });
 
