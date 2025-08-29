@@ -1,4 +1,4 @@
-/* Map assignment (persists) + labels + crowned leader — Runner writes only */
+/* Map assignment (persists) + labels + crowned leader — runner-gated in handler */
 const COLORS = { 'D': '#4B5320', 'Ä': '#7EC8E3', 'G': '#004080' };
 const CODES = ['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','VD','VS','NE','GE','TI','JU'];
 const CODESET = new Set(CODES);
@@ -68,7 +68,7 @@ function wireCantons(){
     const id = normId(g.id); if(!id) return; g.id = id;
 
     g.addEventListener('click', ()=>{
-      if (!canEdit()) return;              // Runner-only
+      if (!canEdit()) { alert('Runner only.'); return; }
       const owner = mapState[id];
       const me = myPlayer();
       if (!owner) mapState[id] = me;
