@@ -1,4 +1,4 @@
-/* Points page: unified log; Runner-only for spend & undo */
+/* Points page: unified log; runner-gated in handlers */
 const summary  = document.getElementById('summary');
 const body     = document.getElementById('pointsBody');
 const spendBtn = document.getElementById('spend');
@@ -15,15 +15,14 @@ let log     = load('pointsLog', []); // {id,t,p,points,note,undoOf?,undone?,orig
 
 renderSummary();
 renderLog();
-updateEditability();
 
+/* Reflect remote updates */
 window.addEventListener("daeg-sync-apply", ()=>{
   points = load('playerPoints', {"D":500,"Ä":500,"G":500});
   log    = load('pointsLog', []);
   renderSummary();
   body.innerHTML=''; renderLog();
 });
-window.addEventListener("daeg-edit-state", updateEditability);
 
 /* Spend -> negative points (= -minutes*10) for myPlayer */
 spendBtn.addEventListener('click', ()=>{
@@ -82,9 +81,8 @@ function prependRow(e, insertTop=true){
   const isUndoEntry = !!e.undoOf;
   if (!isUndoEntry && e.undone !== true) {
     const btn = document.createElement('button');
-    btn.className = 'btn btn-small runner-only';
+    btn.className = 'btn btn-small';
     btn.textContent = 'Undo';
-    btn.disabled = !canEdit();
     btn.addEventListener('click', ()=>{ doUndo(e, btn); });
     actions.appendChild(btn);
   } else {
@@ -170,10 +168,4 @@ function renderScoreboard(items, ariaLabel){
      </div>`
   )).join('');
   return `<div class="scoreboard" aria-label="${ariaLabel}">${pills}</div>`;
-}
-
-function updateEditability(){
-  const editable = canEdit();
-  spendBtn.disabled = !editable;
-  document.querySelectorAll('.runner-only').forEach(el => { el.disabled = !editable; });
 }
