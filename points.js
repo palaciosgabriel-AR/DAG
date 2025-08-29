@@ -1,70 +1,179 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DÄG — Points</title>
-  <link rel="stylesheet" href="./styles.css" />
-</head>
-<body data-page="points">
-  <header class="topbar">
-    <div class="brand">
-      <span class="flag">🇨🇭</span><strong>DÄG across Switzerland</strong><span class="flag">🇨🇭</span>
-    </div>
-    <nav class="nav">
-      <a href="./index.html">Tasks</a>
-      <a href="./points.html" class="active">Points</a>
-      <a href="./map.html">Map</a>
-    </nav>
-    <div class="data-actions">
-      <button id="exportData" class="btn btn-small" title="Download saved data">Export</button>
-      <label class="btn btn-small" for="importFile" title="Load saved data">Import</label>
-      <input id="importFile" type="file" accept="application/json" hidden>
-      <button id="resetAll" class="btn btn-small" title="Reset all saved data">Reset all</button>
-    </div>
-    <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
-  </header>
+/* Points page: unified log; Runner-only for spend & undo */
+const summary  = document.getElementById('summary');
+const body     = document.getElementById('pointsBody');
+const spendBtn = document.getElementById('spend');
+const errEl    = document.getElementById('error');
 
-  <main class="container">
-    <!-- Live summary (big pills) -->
-    <section>
-      <div id="summary"></div>
-    </section>
+const minutesEl = document.getElementById('minutes');
+const noteEl    = document.getElementById('note');
 
-    <!-- Spend section (Runner only) -->
-    <section style="margin-top:1rem;">
-      <h2>Spend / Trips</h2>
-      <div class="form-row">
-        <label for="minutes">Minutes (1–120)</label>
-        <input id="minutes" type="number" min="1" max="120" placeholder="e.g., 7" />
-      </div>
-      <div class="form-row">
-        <label for="note">Note</label>
-        <input id="note" type="text" placeholder="Why (e.g., Tram to Bellevue)" />
-      </div>
-      <div style="margin-top:.8rem;">
-        <button id="spend" class="btn runner-only" title="Runner only: subtract minutes × 10 points">Spend</button>
-        <span id="error" style="margin-left:.8rem;"></span>
-      </div>
-    </section>
+function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
+function canEdit(){ return typeof window.canEdit === 'function' ? window.canEdit() : true; }
 
-    <!-- Unified points log -->
-    <section class="log" style="margin-top:1.6rem;">
-      <h2>Points Log</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th><th>Player</th><th>Points</th><th>Note</th><th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="pointsBody"></tbody>
-      </table>
-    </section>
-  </main>
+let points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
+let log     = load('pointsLog', []); // {id,t,p,points,note,undoOf?,undone?,originNumbersId?}
 
-  <!-- Scripts: sync (runner+player), shared (export/import/reset), then page logic -->
-  <script type="module" src="./sync.js"></script>
-  <script src="./shared.js" defer></script>
-  <script src="./points.js" defer></script>
-</body>
-</html>
+renderSummary();
+renderLog();
+updateEditability();
+
+window.addEventListener("daeg-sync-apply", ()=>{
+  points = load('playerPoints', {"D":500,"Ä":500,"G":500});
+  log    = load('pointsLog', []);
+  renderSummary();
+  body.innerHTML=''; renderLog();
+});
+window.addEventListener("daeg-edit-state", updateEditability);
+
+/* Spend -> negative points (= -minutes*10) for myPlayer */
+spendBtn.addEventListener('click', ()=>{
+  if (!canEdit()) { alert('Runner only.'); return; }
+  errEl.textContent='';
+  const m = parseInt(minutesEl.value,10);
+  const note = (noteEl.value||'').trim();
+
+  if (!Number.isInteger(m) || m<1 || m>120){
+    errEl.textContent = 'Enter minutes between 1 and 120.'; return;
+  }
+  const current = myPlayer();
+  const delta = -(m * 10);
+  if ((points[current]||0) + delta < 0){
+    errEl.textContent = "You don't have enough points for that!";
+    return;
+  }
+
+  applyDelta(current, delta);
+  const entry = { id: uid(), t: nowHHMMSS(), p: current, points: delta, note };
+  log.push(entry); save('pointsLog', log);
+
+  prependRow(entry);
+  minutesEl.value = ''; noteEl.value = '';
+  window.daegSyncTouch?.();
+});
+
+/* ---------- Rendering ---------- */
+function renderSummary(){
+  const d  = points['D']  || 0;
+  const ae = points['Ä']  || 0;
+  const g  = points['G']  || 0;
+  summary.innerHTML = renderScoreboard([
+    { label: 'D',  value: d,  cls: 'pill-d'  },
+    { label: 'Ä',  value: ae, cls: 'pill-ae' },
+    { label: 'G',  value: g,  cls: 'pill-g'  },
+  ], 'Points left');
+}
+
+function renderLog(){
+  for (let i=0;i<log.length;i++) { if (!log[i].id) log[i].id = uid(); }
+  save('pointsLog', log);
+  for (let i=log.length-1;i>=0;i--) prependRow(log[i], false);
+}
+
+function prependRow(e, insertTop=true){
+  const tr = document.createElement('tr');
+
+  const pts = typeof e.points === 'number'
+    ? e.points
+    : (typeof e.minutes === 'number' ? -(e.minutes*10) : 0);
+
+  tr.append(td(e.t), td(e.p), td(String(pts)), tdText(e.note||''));
+  const actions = document.createElement('td');
+
+  const isUndoEntry = !!e.undoOf;
+  if (!isUndoEntry && e.undone !== true) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-small runner-only';
+    btn.textContent = 'Undo';
+    btn.disabled = !canEdit();
+    btn.addEventListener('click', ()=>{ doUndo(e, btn); });
+    actions.appendChild(btn);
+  } else {
+    actions.textContent = isUndoEntry ? '← undo' : '';
+  }
+  tr.appendChild(actions);
+
+  if (insertTop && body.firstChild) body.insertBefore(tr, body.firstChild);
+  else body.appendChild(tr);
+}
+
+/* ---------- Undo ---------- */
+function doUndo(origEntry, buttonEl){
+  if (!canEdit()) { alert('Runner only.'); return; }
+  if (!origEntry.id) { origEntry.id = uid(); save('pointsLog', log); }
+
+  const origPts = typeof origEntry.points === 'number'
+    ? origEntry.points
+    : (typeof origEntry.minutes === 'number' ? -(origEntry.minutes*10) : 0);
+
+  const inverse = -origPts;
+
+  applyDelta(origEntry.p, inverse);
+
+  const undo = {
+    id: uid(),
+    t: nowHHMMSS(),
+    p: origEntry.p,
+    points: inverse,
+    note: 'UNDO: ' + (origEntry.note || ''),
+    undoOf: origEntry.id
+  };
+  log.push(undo);
+
+  origEntry.undone = true;
+  save('pointsLog', log);
+
+  if (origPts > 0) unclaimNumbersTask(origEntry);
+
+  if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Undone'; }
+  prependRow(undo, true);
+  renderSummary();
+  window.daegSyncTouch?.();
+}
+
+function unclaimNumbersTask(pointsEntry){
+  const logs = load('logEntries', []);
+  let changed = false;
+
+  if (pointsEntry.originNumbersId) {
+    const idx = logs.findIndex(x => x && x.id === pointsEntry.originNumbersId);
+    if (idx >= 0 && logs[idx].claimed) { logs[idx].claimed = false; changed = true; }
+  } else {
+    const note = (pointsEntry.note || '').replace(/^UNDO:\s*/,'').trim();
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const row = logs[i];
+      if (row && row.p === pointsEntry.p && (row.task||'').trim() === note && row.claimed === true) {
+        logs[i].claimed = false; changed = true; break;
+      }
+    }
+  }
+  if (changed) { save('logEntries', logs); window.daegSyncTouch?.(); }
+}
+
+/* ---------- Helpers ---------- */
+function applyDelta(player, delta){
+  points[player] = (points[player]||0) + delta;
+  save('playerPoints', points);
+  renderSummary();
+}
+function td(text){ const el=document.createElement('td'); el.textContent=text; return el; }
+function tdText(text){ const el=document.createElement('td'); el.textContent = text; return el; }
+function nowHHMMSS(){ const d=new Date(),p=x=>String(x).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
+function load(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;} }
+function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+function uid(){ if (crypto && crypto.getRandomValues){ const a=new Uint32Array(2); crypto.getRandomValues(a); return `${Date.now().toString(36)}-${a[0].toString(36)}-${a[1].toString(36)}`; } return `id-${Math.random().toString(36).slice(2)}`; }
+
+function renderScoreboard(items, ariaLabel){
+  const pills = items.map(it => (
+    `<div class="pill ${it.cls}" role="group" aria-label="${it.label}">
+       <span class="tag"></span><span class="label">${it.label}</span>
+       <span class="value">${it.value}</span>
+     </div>`
+  )).join('');
+  return `<div class="scoreboard" aria-label="${ariaLabel}">${pills}</div>`;
+}
+
+function updateEditability(){
+  const editable = canEdit();
+  spendBtn.disabled = !editable;
+  document.querySelectorAll('.runner-only').forEach(el => { el.disabled = !editable; });
+}
