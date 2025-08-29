@@ -1,6 +1,10 @@
 // sync.js — Firestore <-> localStorage realtime sync (Firebase v12.1.0)
-// Conflict-proof per-key revs, status badge, heartbeat, remote reset (preserves tasks).
-// NEW: syncs a "tasksLocked" flag so all clients respect task locking.
+// - Status badge ("writeable"/"read-only")
+// - Per-key revision map (conflict-proof)
+// - Heartbeat + explicit touch()
+// - Remote Reset (preserves tasks)
+// - Tasks lock flag syncing
+// - NEW: daegSyncRestore(snapshot) => cloud-safe import/restore
 
 const firebaseConfig = {
   apiKey: "AIzaSyBukCK_qvHrHqkUYR90ch25vV_tsbe2RBo",
@@ -17,12 +21,12 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebas
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// Include tasksLocked here so it syncs everywhere
+// Include tasksLocked so the lock syncs everywhere
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
   "dark","activePlayer","lastPlayer",
-  "tasksLocked"                // NEW
+  "tasksLocked"
 ];
 
 const app  = initializeApp(firebaseConfig);
@@ -55,12 +59,12 @@ function setStatus(text, tone='info'){
 }
 setStatus('connecting…');
 
-/* ---------- Local helpers ---------- */
+/* ---------- Helpers ---------- */
 function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
 function packLocal(){ const x={}; for (const k of KEYS) x[k] = safeParse(localStorage.getItem(k)); return x; }
 function fingerprint(obj){ try { return JSON.stringify(obj); } catch { return Math.random().toString(36); } }
 
-/* ---------- Per-key revision map ---------- */
+/* ---------- Per-key revision map (conflict prevention) ---------- */
 let revMap = safeParse(localStorage.getItem('revMap')) || {};
 function saveRevMap(){ localStorage.setItem('revMap', JSON.stringify(revMap)); }
 function getRev(key){ return Number.isInteger(revMap[key]) ? revMap[key] : 0; }
@@ -96,6 +100,7 @@ function applyRemote(data){
 }
 
 function schedulePush(){ if (applyingRemote || !writeable) return; clearTimeout(pushTimer); pushTimer = setTimeout(pushNow, 200); }
+
 async function pushNow(){
   try{
     if (changedKeys.size === 0) return;
@@ -114,8 +119,11 @@ async function pushNow(){
     setTimeout(probeWrite, 1500);
   }
 }
+
+// Expose a gentle nudge
 window.daegSyncTouch = function(){ schedulePush(); };
 
+// Intercept local writes to mark keys changed & bump rev
 const _set = localStorage.setItem.bind(localStorage);
 localStorage.setItem = function(k, v){
   const before = localStorage.getItem(k);
@@ -127,10 +135,32 @@ localStorage.setItem = function(k, v){
   }
 };
 
+/* ---------- Cloud-safe IMPORT / RESTORE (new) ---------- */
+/**
+ * Apply a snapshot (from file) locally and push it to Firestore with higher revs,
+ * so it becomes the new shared state across all devices.
+ */
+window.daegSyncRestore = async function(snapshot){
+  if (!snapshot || typeof snapshot !== 'object') throw new Error('Invalid snapshot');
+
+  // Apply provided keys locally (this bumps revs and marks changedKeys via our setItem interceptor)
+  for (const k of KEYS){
+    if (Object.prototype.hasOwnProperty.call(snapshot, k)) {
+      localStorage.setItem(k, JSON.stringify(snapshot[k]));
+    }
+  }
+
+  // Trigger UI update immediately
+  window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
+
+  // Push to Firestore so everyone adopts the imported state
+  await pushNow();
+};
+
 /* ---------- Remote RESET (preserves tasks) ---------- */
 function initialSnapshot(preservedTasks){
   const currentDark = localStorage.getItem('dark') || '0';
-  // Note: we do NOT touch tasksLocked here — it stays as-is remotely.
+  // tasksLocked is preserved automatically (we don't touch it here)
   return {
     dark: currentDark,
     usedSets: { D:[], Ä:[], G:[] },
@@ -145,15 +175,19 @@ function initialSnapshot(preservedTasks){
 }
 async function doRemoteReset(){
   if (!writeable) { alert('This device is read-only (not signed in). Try another device/network.'); return; }
+
+  // Preserve tasks from server if possible; else fall back to local.
   let preservedTasks = {};
   try { const snap = await getDoc(gameRef); if (snap.exists()) preservedTasks = snap.data()?.tasksByNumber || {}; } catch {}
   if (!preservedTasks || Object.keys(preservedTasks).length === 0) preservedTasks = packLocal().tasksByNumber || {};
+
   const fresh = initialSnapshot(preservedTasks);
   for (const k of ["usedSets","logEntries","playerPoints","pointsLog","mapState","activePlayer","lastPlayer"]) {
     bumpRev(k);
     changedKeys.add(k);
   }
-  // Apply locally then push with current revMap
+
+  // Apply locally then push
   applyingRemote = true;
   try { for (const k of Object.keys(fresh)) localStorage.setItem(k, JSON.stringify(fresh[k])); }
   finally { applyingRemote = false; }
