@@ -12,7 +12,7 @@
       <span class="flag">🇨🇭</span><strong>DÄG across Switzerland</strong><span class="flag">🇨🇭</span>
     </div>
     <nav class="nav">
-      <a href="./index.html">Numbers</a>
+      <a href="./index.html">Tasks</a>
       <a href="./points.html" class="active">Points</a>
       <a href="./map.html">Map</a>
     </nav>
@@ -26,35 +26,28 @@
   </header>
 
   <main class="container">
-    <p id="summary" class="status"></p>
-
     <section>
-      <h2>Spend points</h2>
-      <div class="form-row">
-        <label>Player</label>
-        <div class="buttons">
-          <button class="btn" data-player="D">D</button>
-          <button class="btn" data-player="Ä">Ä</button>
-          <button class="btn" data-player="G">G</button>
-        </div>
-      </div>
-      <div class="form-row">
-        <label for="minutes">Minutes (1–120)</label>
-        <input id="minutes" type="number" min="1" max="120" step="1" placeholder="e.g. 30" />
-      </div>
-      <div class="form-row">
-        <label for="note">What for?</label>
-        <input id="note" type="text" maxlength="120" placeholder="Short description" />
-      </div>
-      <div class="form-row">
-        <div></div>
-        <button id="spend" class="btn">Spend</button>
-      </div>
-      <p id="error" class="error-msg"></p>
+      <div id="summary"></div>
     </section>
 
-    <section class="log mt-12">
-      <h2>Points log</h2>
+    <section style="margin-top:1rem;">
+      <h2>Spend / Trips</h2>
+      <div class="form-row">
+        <label for="minutes">Minutes (1–120)</label>
+        <input id="minutes" type="number" min="1" max="120" placeholder="e.g., 7" />
+      </div>
+      <div class="form-row">
+        <label for="note">Note</label>
+        <input id="note" type="text" placeholder="Why (e.g., Tram to Bellevue)" />
+      </div>
+      <div style="margin-top:.8rem;">
+        <button id="spend" class="btn runner-only" title="Runner only: subtract minutes × 10 points">Spend</button>
+        <span id="error" style="margin-left:.8rem;"></span>
+      </div>
+    </section>
+
+    <section class="log" style="margin-top:1.6rem;">
+      <h2>Points Log</h2>
       <table>
         <thead>
           <tr>
@@ -66,8 +59,8 @@
     </section>
   </main>
 
+  <script type="module" src="./sync.js"></script>
   <script src="./shared.js" defer></script>
-  <script type="module" src="./sync.js?v=7"></script>
   <script src="./points.js" defer></script>
 </body>
 </html>
