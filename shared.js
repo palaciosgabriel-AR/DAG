@@ -18,7 +18,7 @@
 
   function snapshotAll() {
     return {
-      __version: 1,
+      __version: 2,
       exportedAt: new Date().toISOString(),
       dark: localStorage.getItem('dark') || '0',
       usedSets: get('usedSets', {"D":[],"Ä":[],"G":[]}),
@@ -28,9 +28,11 @@
       pointsLog: get('pointsLog', []),
       mapState: get('mapState', {}),
       activePlayer: localStorage.getItem('activePlayer') || 'D',
-      lastPlayer: localStorage.getItem('lastPlayer') || 'D'
+      lastPlayer: localStorage.getItem('lastPlayer') || 'D',
+      tasksLocked: get('tasksLocked', false)   // NEW: include lock flag in exports
     };
   }
+
   function applySnapshot(s) {
     if (s.dark != null) localStorage.setItem('dark', String(s.dark).endsWith('1') ? '1' : '0');
     if (s.usedSets) set('usedSets', s.usedSets);
@@ -41,6 +43,7 @@
     if (s.mapState) set('mapState', s.mapState);
     if (s.activePlayer) localStorage.setItem('activePlayer', s.activePlayer);
     if (s.lastPlayer) localStorage.setItem('lastPlayer', s.lastPlayer);
+    if (typeof s.tasksLocked !== 'undefined') set('tasksLocked', !!s.tasksLocked);
   }
 
   // Export / Import / Reset all
@@ -56,30 +59,40 @@
     document.body.appendChild(a); a.click(); a.remove();
   });
 
-  importInput?.addEventListener('change', (e) => {
+  importInput?.addEventListener('change', async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      try { applySnapshot(JSON.parse(reader.result)); location.reload(); }
-      catch { alert('Import failed: invalid file.'); }
+    reader.onload = async () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        // Prefer cloud-safe restore if available
+        if (typeof window.daegSyncRestore === 'function') {
+          await window.daegSyncRestore(parsed);
+        } else {
+          // fallback: local only (not recommended)
+          applySnapshot(parsed);
+        }
+        // Optional: refresh UI (not strictly necessary, but keeps page consistent)
+        location.reload();
+      } catch (err) {
+        console.error('Import failed:', err);
+        alert('Import failed: invalid or unreadable file.');
+      }
     };
     reader.readAsText(f);
   });
 
-  // FIXED: Reset both local *and* Firestore
-  resetAll?.addEventListener('click', async () => {
-    if (!confirm('Reset ALL saved data (numbers, tasks, log, points, map) for everyone?')) return;
-    try {
+  resetAll?.addEventListener('click', () => {
+    if (confirm('Reset ALL saved data (numbers, tasks, log, points, map)? Tasks will be kept.')) {
       if (typeof window.daegSyncReset === 'function') {
-        await window.daegSyncReset();   // remote reset + local apply
+        window.daegSyncReset();
       } else {
-        // Fallback (no sync.js): just clear local
+        // fallback local reset
+        const preservedTasks = get('tasksByNumber', {});
         localStorage.clear();
+        set('tasksByNumber', preservedTasks);
+        location.reload();
       }
-      location.reload();
-    } catch (err) {
-      console.error('Reset failed:', err);
-      alert('Reset failed. Check console for details.');
     }
   });
 })();
