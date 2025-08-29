@@ -29,7 +29,7 @@
     <p id="status" class="status"></p>
 
     <section class="buttons">
-      <button id="btn-draw" class="btn btn-letter runner-only" title="Draw a number for your player">Draw</button>
+      <button id="btn-draw" class="btn btn-letter">Draw task</button>
     </section>
 
     <section class="log">
@@ -49,13 +49,12 @@
     </section>
 
     <footer class="footer">
-      <button id="reset" class="btn btn-reset runner-only" title="Reset numbers, log (tasks kept)">Reset</button>
+      <button id="reset" class="btn btn-reset" title="Reset numbers, log (keep tasks)">Reset</button>
     </footer>
   </main>
 
-  <!-- Order matters -->
-  <script type="module" src="./sync.js"></script>
   <script src="./shared.js" defer></script>
+  <script type="module" src="./sync.js?v=20"></script>
   <script src="./numbers.js" defer></script>
 </body>
 </html>
