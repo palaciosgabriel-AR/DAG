@@ -22,6 +22,8 @@
       <input id="importFile" type="file" accept="application/json" hidden>
       <button id="resetAll" class="btn btn-small" title="Reset all saved data">Reset all</button>
     </div>
+    <!-- NEW: Lock tasks (syncs to everyone) -->
+    <label class="toggle"><input type="checkbox" id="toggleTasksLock"> Lock tasks</label>
     <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
   </header>
 
@@ -38,7 +40,7 @@
       <h2>Log</h2>
       <table>
         <thead><tr><th>Time</th><th>Player</th><th>#</th><th>Task</th><th>Reward</th></tr></thead>
-      <tbody id="logBody"></tbody>
+        <tbody id="logBody"></tbody>
       </table>
     </section>
 
@@ -55,9 +57,9 @@
     </footer>
   </main>
 
-  <!-- JS order matters: shared helpers -> realtime sync -> page logic -->
+  <!-- Order: helpers -> realtime sync -> page logic -->
   <script src="./shared.js" defer></script>
-  <script type="module" src="./sync.js?v=7"></script>
+  <script type="module" src="./sync.js"></script>
   <script src="./numbers.js" defer></script>
 </body>
 </html>
