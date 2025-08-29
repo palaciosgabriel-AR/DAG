@@ -1,4 +1,4 @@
-/* Points page: unified log + Undo that also unclaims tasks in Numbers + live refresh */
+/* Points page: unified log; Runner-only for spend & undo */
 const summary  = document.getElementById('summary');
 const body     = document.getElementById('pointsBody');
 const spendBtn = document.getElementById('spend');
@@ -7,32 +7,27 @@ const errEl    = document.getElementById('error');
 const minutesEl = document.getElementById('minutes');
 const noteEl    = document.getElementById('note');
 
-let current = localStorage.getItem('lastPlayer') || 'D';
+function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
+function canEdit(){ return typeof window.canEdit === 'function' ? window.canEdit() : true; }
+
 let points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
 let log     = load('pointsLog', []); // {id,t,p,points,note,undoOf?,undone?,originNumbersId?}
 
-highlightPlayer(current);
 renderSummary();
 renderLog();
+updateEditability();
 
-/* live refresh from realtime sync */
-window.addEventListener('daeg-sync-apply', ()=>{
+window.addEventListener("daeg-sync-apply", ()=>{
   points = load('playerPoints', {"D":500,"Ä":500,"G":500});
   log    = load('pointsLog', []);
   renderSummary();
-  renderLog();
+  body.innerHTML=''; renderLog();
 });
-
-document.querySelectorAll('[data-player]').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    current = btn.dataset.player;
-    localStorage.setItem('lastPlayer', current);
-    highlightPlayer(current);
-  });
-});
+window.addEventListener("daeg-edit-state", updateEditability);
 
 /* Spend -> negative points (= -minutes*10) */
 spendBtn.addEventListener('click', ()=>{
+  if (!canEdit()) { alert('Runner only.'); return; }
   errEl.textContent='';
   const m = parseInt(minutesEl.value,10);
   const note = (noteEl.value||'').trim();
@@ -40,6 +35,7 @@ spendBtn.addEventListener('click', ()=>{
   if (!Number.isInteger(m) || m<1 || m>120){
     errEl.textContent = 'Enter minutes between 1 and 120.'; return;
   }
+  const current = myPlayer();
   const delta = -(m * 10);
   if ((points[current]||0) + delta < 0){
     errEl.textContent = "You don't have enough points for that!";
@@ -49,8 +45,10 @@ spendBtn.addEventListener('click', ()=>{
   applyDelta(current, delta);
   const entry = { id: uid(), t: nowHHMMSS(), p: current, points: delta, note };
   log.push(entry); save('pointsLog', log);
+
   prependRow(entry);
   minutesEl.value = ''; noteEl.value = '';
+  window.daegSyncTouch?.();
 });
 
 /* ---------- Rendering ---------- */
@@ -66,23 +64,27 @@ function renderSummary(){
 }
 
 function renderLog(){
-  body.innerHTML='';
-  for (let i=0;i<log.length;i++) if (!log[i].id) log[i].id = uid();
+  for (let i=0;i<log.length;i++) { if (!log[i].id) log[i].id = uid(); }
   save('pointsLog', log);
   for (let i=log.length-1;i>=0;i--) prependRow(log[i], false);
 }
 
 function prependRow(e, insertTop=true){
   const tr = document.createElement('tr');
-  const pts = typeof e.points === 'number' ? e.points : (typeof e.minutes === 'number' ? -(e.minutes*10) : 0);
+
+  const pts = typeof e.points === 'number'
+    ? e.points
+    : (typeof e.minutes === 'number' ? -(e.minutes*10) : 0);
+
   tr.append(td(e.t), td(e.p), td(String(pts)), tdText(e.note||''));
   const actions = document.createElement('td');
 
   const isUndoEntry = !!e.undoOf;
   if (!isUndoEntry && e.undone !== true) {
     const btn = document.createElement('button');
-    btn.className = 'btn btn-small';
+    btn.className = 'btn btn-small runner-only';
     btn.textContent = 'Undo';
+    btn.disabled = !canEdit();
     btn.addEventListener('click', ()=>{ doUndo(e, btn); });
     actions.appendChild(btn);
   } else {
@@ -96,6 +98,7 @@ function prependRow(e, insertTop=true){
 
 /* ---------- Undo logic ---------- */
 function doUndo(origEntry, buttonEl){
+  if (!canEdit()) { alert('Runner only.'); return; }
   if (!origEntry.id) { origEntry.id = uid(); save('pointsLog', log); }
 
   const origPts = typeof origEntry.points === 'number'
@@ -115,14 +118,19 @@ function doUndo(origEntry, buttonEl){
     undoOf: origEntry.id
   };
   log.push(undo);
+
   origEntry.undone = true;
   save('pointsLog', log);
 
-  if (origPts > 0) unclaimNumbersTask(origEntry);
+  // If this was a task claim (+500) and we know its originating Numbers entry, unclaim it
+  if (origPts > 0) {
+    unclaimNumbersTask(origEntry);
+  }
 
   if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Undone'; }
   prependRow(undo, true);
   renderSummary();
+  window.daegSyncTouch?.();
 }
 
 /* Reset task's claimed flag in Numbers if we can identify it */
@@ -132,17 +140,22 @@ function unclaimNumbersTask(pointsEntry){
 
   if (pointsEntry.originNumbersId) {
     const idx = logs.findIndex(x => x && x.id === pointsEntry.originNumbersId);
-    if (idx >= 0 && logs[idx].claimed) { logs[idx].claimed = false; changed = true; }
+    if (idx >= 0 && logs[idx].claimed) {
+      logs[idx].claimed = false;
+      changed = true;
+    }
   } else {
     const note = (pointsEntry.note || '').replace(/^UNDO:\s*/,'').trim();
     for (let i = logs.length - 1; i >= 0; i--) {
       const row = logs[i];
       if (row && row.p === pointsEntry.p && (row.task||'').trim() === note && row.claimed === true) {
-        logs[i].claimed = false; changed = true; break;
+        logs[i].claimed = false;
+        changed = true;
+        break;
       }
     }
   }
-  if (changed) save('logEntries', logs);
+  if (changed) { save('logEntries', logs); window.daegSyncTouch?.(); }
 }
 
 /* ---------- Helpers ---------- */
@@ -153,9 +166,6 @@ function applyDelta(player, delta){
 }
 function td(text){ const el=document.createElement('td'); el.textContent=text; return el; }
 function tdText(text){ const el=document.createElement('td'); el.textContent = text; return el; }
-function highlightPlayer(p){
-  document.querySelectorAll('[data-player]').forEach(b=>b.classList.toggle('btn-letter', b.dataset.player===p));
-}
 function nowHHMMSS(){ const d=new Date(),p=x=>String(x).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function load(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;} }
 function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
@@ -169,4 +179,10 @@ function renderScoreboard(items, ariaLabel){
      </div>`
   )).join('');
   return `<div class="scoreboard" aria-label="${ariaLabel}">${pills}</div>`;
+}
+
+function updateEditability(){
+  const editable = canEdit();
+  spendBtn.disabled = !editable;
+  document.querySelectorAll('.runner-only').forEach(el => { el.disabled = !editable; });
 }
