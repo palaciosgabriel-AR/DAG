@@ -1,7 +1,7 @@
 // sync.js — Firestore <-> localStorage realtime sync (Firebase v12.1.0)
 // - Per-key revision map (conflict-proof) for KEYS below
 // - Status badge, heartbeat, Reset (keeps tasks), Import->cloud restore, tasks lock
-// - FIX: On first apply we STILL compare revisions; remote cannot clobber new local edits.
+// - FIX: If a key is missing locally, always adopt the remote value (prevents empty tasks on a new device).
 
 const firebaseConfig = {
   apiKey: "AIzaSyBukCK_qvHrHqkUYR90ch25vV_tsbe2RBo",
@@ -18,7 +18,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebas
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// Everything we sync (includes tasksLocked)
+// Keys to sync (incl. tasksLocked)
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
@@ -71,18 +71,17 @@ function bumpRev(key){ revMap[key] = getRev(key) + 1; saveRevMap(); }
 /* ---------- Sync engine ---------- */
 let applyingRemote = false;
 let writeable = false;
-let hasInitialSync = false;
 let pushTimer = null;
 let lastSentFingerprint = '';
 const changedKeys = new Set();
 
-/* ----- Apply remote safely (compare revs even on first load) ----- */
+/* ----- Apply remote safely ----- */
 function applyRemote(data){
   const incomingRev = data.revMap || {};
 
-  // If remote has a revMap, merge counters before comparing (bootstrap)
+  // Merge remote counters first so comparisons are fair
   if (data.revMap && typeof data.revMap === 'object') {
-    revMap = { ...revMap, ...data.revMap };
+    revMap = { ...revMap, ...data.revMap }; // remote overwrites local for common keys
     saveRevMap();
   }
 
@@ -94,15 +93,15 @@ function applyRemote(data){
 
       const incRev = Number.isInteger(incomingRev[k]) ? incomingRev[k] : 0;
       const locRev = getRev(k);
-
-      // NEW: Always compare revisions. Only apply when remote is strictly newer,
-      // OR when we have no local value and both revs are 0 (first-time populate).
       const localHasValue = localStorage.getItem(k) != null;
-      const shouldApply = (incRev > locRev) || (!localHasValue && incRev === 0 && locRev === 0);
+
+      // FIX: if we don't have this key locally yet, adopt remote value.
+      // Otherwise, only apply when remote revision is newer.
+      const shouldApply = !localHasValue || incRev > locRev;
 
       if (shouldApply){
         localStorage.setItem(k, JSON.stringify(data[k]));
-        revMap[k] = incRev; // adopt remote counter
+        revMap[k] = incRev; // adopt remote counter we just applied
         anyChanged = true;
       }
     }
@@ -111,7 +110,6 @@ function applyRemote(data){
     applyingRemote = false;
   }
 
-  hasInitialSync = true;
   if (anyChanged) window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
 
@@ -123,7 +121,7 @@ async function pushNow(){
     const allLocal = packLocal();
     const payload = {};
     for (const k of changedKeys){ if (k in allLocal) payload[k] = allLocal[k]; }
-    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:4 }, ...payload };
+    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:5 }, ...payload };
     const fp = fingerprint(sendBody);
     if (fp === lastSentFingerprint) return;
     await setDoc(gameRef, sendBody, { merge:true });
@@ -188,7 +186,7 @@ async function doRemoteReset(){
   applyingRemote = true;
   try { for (const k of Object.keys(fresh)) localStorage.setItem(k, JSON.stringify(fresh[k])); }
   finally { applyingRemote = false; }
-  await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:4 }, ...fresh }, { merge:true });
+  await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:5 }, ...fresh }, { merge:true });
   changedKeys.clear();
   window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
@@ -209,7 +207,6 @@ async function start(){
     const snap = await getDoc(gameRef);
     if (snap.exists()){
       const data = snap.data() || {};
-      // Merge remote revMap BEFORE applying remote so we can compare fairly
       if (data.revMap && typeof data.revMap === 'object') { revMap = { ...revMap, ...data.revMap }; saveRevMap(); }
       applyRemote(data);
     }
