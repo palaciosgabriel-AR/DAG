@@ -20,7 +20,7 @@ const layer = document.getElementById('cantons-layer');
 const normId = (raw)=>{ if(!raw) return null; let s=raw.toUpperCase().trim();
   s=s.replace(/^CH[\-_.\s]?/,''); s=s.replace(/[^A-Z]/g,''); if(s.length>2)s=s.slice(-2); return CODESET.has(s)?s:null; };
 
-/* Load local ch.svg (already hosted with the site) */
+/* Load local ch.svg (must exist beside this file) */
 (async function loadSvg(){
   try{
     const r = await fetch('./ch.svg', {mode:'cors'}); if(!r.ok) throw new Error('svg not found');
@@ -79,9 +79,7 @@ function wireCantons(){
       window.daegSyncTouch?.();
     });
 
-    g.addEventListener('mouseenter', ()=>{
-      const t = ensureLabel(g, id); t.style.display = 'block';
-    });
+    g.addEventListener('mouseenter', ()=>{ const t = ensureLabel(g, id); t.style.display = 'block'; });
     g.addEventListener('mouseleave', ()=>{
       const owner = mapState[id];
       const t = g.querySelector('text.label');
@@ -134,6 +132,6 @@ window.addEventListener('daeg-sync-apply', ()=>{
   applyMapColors(); updateCounts();
 });
 
-/* shared helpers */
+/* helpers */
 function load(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch{return d;} }
 function save(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
