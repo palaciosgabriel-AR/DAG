@@ -15,7 +15,7 @@ const btns = {
 /* ---------- load state ---------- */
 let used = loadJson("usedSets", { D: [], Ä: [], G: [] });
 Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
-let logEntries = loadJson("logEntries", []);            // [{id,t,p,n,task,claimed}]
+let logEntries = loadJson("logEntries", []);              // [{id,t,p,n,task,claimed}]
 let tasks      = loadJson("tasksByNumber", emptyTasks()); // {"1":"..."}
 
 /* ---------- init UI ---------- */
@@ -24,7 +24,7 @@ PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
 renderLogFromStorage();
 renderTasksTable();
 
-/* ---------- cross-device live refresh ---------- */
+/* ---------- live refresh from sync, but be kind while typing ---------- */
 window.addEventListener("daeg-sync-apply", handleExternalUpdate);
 
 /* ---------- events ---------- */
@@ -33,10 +33,9 @@ resetBtn.addEventListener("click", () => {
   if (!confirm("Reset numbers, log, and tasks?")) return;
   used = { D: new Set(), Ä: new Set(), G: new Set() };
   logEntries = [];
-  tasks = emptyTasks();
+  // tasks are preserved globally by sync reset; here we keep local value
   persistUsed();
   saveJson("logEntries", logEntries);
-  saveJson("tasksByNumber", tasks);
   Object.values(btns).forEach(b => (b.disabled = false));
   clearChildren(logBody);
   renderTasksTable();
@@ -64,6 +63,7 @@ function handlePress(player){
 
   if (set.size === TOTAL) btns[player].disabled = true;
   renderStatus();
+  window.daegSyncTouch?.(); // nudge push
 }
 
 function persistUsed(){
@@ -96,13 +96,14 @@ function appendLogRow(e, newestOnTop){
         const player = logEntries[idx].p;
         const taskText = logEntries[idx].task || '';
 
-        addPoints(player, 500);                        // update balance
-        appendPointsLog(player, 500, taskText, e.id);  // link to this numbers-entry id
+        addPoints(player, 500);
+        appendPointsLog(player, 500, taskText, e.id);
 
         logEntries[idx].claimed = true;
         saveJson("logEntries", logEntries);
         btn.disabled = true;
         btn.textContent = "✓ Claimed";
+        window.daegSyncTouch?.();
       }
     });
     tdClaim.appendChild(btn);
@@ -119,19 +120,25 @@ function renderLogFromStorage(){
   for (let i = logEntries.length - 1; i >= 0; i--) appendLogRow(logEntries[i], false);
 }
 
-/* ---------- tasks table ---------- */
+/* ---------- tasks table (no re-render while editing) ---------- */
 function renderTasksTable(){
   clearChildren(tasksBody);
   for (let i = 1; i <= 26; i++) {
     const tr = document.createElement("tr");
-
     const tdNum = document.createElement("td"); tdNum.textContent = String(i);
 
     const tdInp = document.createElement("td");
     const inp = document.createElement("input");
-    inp.type = "text"; inp.value = tasks[String(i)] || ""; inp.setAttribute("data-num", String(i));
+    inp.type = "text";
+    inp.value = tasks[String(i)] || "";
+    inp.setAttribute("data-num", String(i));
     inp.placeholder = `Enter task for ${i}`;
-    const saveIt = () => { tasks[String(i)] = inp.value; saveJson("tasksByNumber", tasks); };
+
+    const saveIt = () => {
+      tasks[String(i)] = inp.value;
+      saveJson("tasksByNumber", tasks);
+      // No forced re-render; sync layer will pick up change
+    };
     inp.addEventListener("input", saveIt);
     inp.addEventListener("change", saveIt);
 
@@ -141,7 +148,7 @@ function renderTasksTable(){
   }
 }
 
-/* ---------- cross-page points credit + logging ---------- */
+/* --- cross-page points credit + logging --- */
 function addPoints(player, amount){
   const pts = loadJson("playerPoints", { D:500, Ä:500, G:500 });
   pts[player] = (pts[player] || 0) + amount;
@@ -149,14 +156,7 @@ function addPoints(player, amount){
 }
 function appendPointsLog(player, delta, note, originNumbersId){
   const pLog = loadJson('pointsLog', []);
-  pLog.push({
-    id: uid(),
-    t: fmt(new Date()),
-    p: player,
-    points: delta,
-    note: note || '',
-    originNumbersId: originNumbersId || null
-  });
+  pLog.push({ id: uid(), t: fmt(new Date()), p: player, points: delta, note: note || '', originNumbersId: originNumbersId || null });
   saveJson('pointsLog', pLog);
 }
 
@@ -169,23 +169,44 @@ function nextAvailableFrom(start,set){ if(set.size>=26) return null; let c=start
 function fmt(d){ const p=x=>String(x).padStart(2,"0"); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function uid(){ if (crypto && crypto.getRandomValues){ const a=new Uint32Array(2); crypto.getRandomValues(a); return `${Date.now().toString(36)}-${a[0].toString(36)}-${a[1].toString(36)}`; } return `id-${Math.random().toString(36).slice(2)}`; }
 function clearChildren(el){ while (el && el.firstChild) el.removeChild(el.firstChild); }
+
 function renderStatus(){
   const left = L => TOTAL - (used[L] ? used[L].size : 0);
   statusEl.textContent = `Numbers left — D: ${left("D")}, Ä: ${left("Ä")}, G: ${left("G")}`;
 }
 
-/* ---------- external update handler ---------- */
+/* ---------- external update handler (preserve focus) ---------- */
 function handleExternalUpdate(){
+  // Refresh used/log/tasks from storage
   let u = loadJson("usedSets", { D:[], Ä:[], G:[] });
   Object.keys(u).forEach(k => u[k] = new Set(u[k] || []));
   used = u;
   logEntries = loadJson("logEntries", []);
-  tasks = loadJson("tasksByNumber", tasks);
+  const newTasks = loadJson("tasksByNumber", tasks);
 
+  // Are we currently editing one of the task inputs?
+  const active = document.activeElement;
+  const editing = active && tasksBody.contains(active) && active.tagName === 'INPUT';
+
+  // Always redraw log & status
   Object.values(btns).forEach(b => b.disabled = false);
   PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
-
   clearChildren(logBody); renderLogFromStorage();
-  renderTasksTable();
   renderStatus();
+
+  // For tasks: if not editing, rebuild table; if editing, just update other rows
+  tasks = newTasks;
+  if (!editing) {
+    renderTasksTable();
+  } else {
+    const activeNum = active.getAttribute('data-num');
+    const inputs = tasksBody.querySelectorAll('input[data-num]');
+    inputs.forEach(inp=>{
+      const num = inp.getAttribute('data-num');
+      if (num !== activeNum) {
+        const val = tasks[String(num)] || '';
+        if (inp.value !== val) inp.value = val;
+      }
+    });
+  }
 }
