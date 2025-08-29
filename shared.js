@@ -24,14 +24,14 @@
       usedSets: get('usedSets', {"D":[],"Ä":[],"G":[]}),
       logEntries: get('logEntries', []),
       tasksByNumber: get('tasksByNumber', {}),
-      // keep tasksRev if your current build still uses it; harmless if absent
-      tasksRev: get('tasksRev', {}),
+      tasksRev: get('tasksRev', {}),     // harmless if absent in your build
       playerPoints: get('playerPoints', {"D":500,"Ä":500,"G":500}),
       pointsLog: get('pointsLog', []),
       mapState: get('mapState', {}),
       activePlayer: localStorage.getItem('activePlayer') || 'D',
       lastPlayer: localStorage.getItem('lastPlayer') || 'D',
-      tasksLocked: get('tasksLocked', false)
+      tasksLocked: get('tasksLocked', false),
+      stateEpoch: Number(localStorage.getItem('stateEpoch') || '0')
     };
   }
 
@@ -47,6 +47,7 @@
     if (s.activePlayer) localStorage.setItem('activePlayer', s.activePlayer);
     if (s.lastPlayer) localStorage.setItem('lastPlayer', s.lastPlayer);
     if (typeof s.tasksLocked !== 'undefined') set('tasksLocked', !!s.tasksLocked);
+    if (typeof s.stateEpoch === 'number') localStorage.setItem('stateEpoch', String(s.stateEpoch));
   }
 
   // Export / Import / Reset all
@@ -69,9 +70,9 @@
       try {
         const parsed = JSON.parse(reader.result);
         if (typeof window.daegSyncRestore === 'function') {
-          await window.daegSyncRestore(parsed);   // push to cloud with revs
+          await window.daegSyncRestore(parsed);
         } else {
-          applySnapshot(parsed);                  // local fallback
+          applySnapshot(parsed);
         }
         location.reload();
       } catch (err) {
@@ -82,29 +83,24 @@
     reader.readAsText(f);
   });
 
-  // FIXED: await the cloud reset; show progress; fall back safely if sync not loaded
   resetAll?.addEventListener('click', async () => {
-    if (!confirm('Reset ALL data (numbers, points, map, logs). Tasks are kept. Proceed?')) return;
+    if (!confirm('Reset ALL data (numbers, points, map, logs). Tasks are kept. Runner only.')) return;
     const btn = resetAll;
     const originalText = btn.textContent;
     btn.disabled = true; btn.textContent = 'Resetting…';
-
     try {
       if (typeof window.daegSyncReset === 'function') {
-        await window.daegSyncReset();            // <- ensures Firestore is updated
+        await window.daegSyncReset();   // runner-only; also bumps epoch
       } else {
-        // fallback local-only reset (keeps tasks & tasksRev)
+        // fallback local-only reset (keeps tasks)
         const t = get('tasksByNumber', {});
-        const r = get('tasksRev', {});
         localStorage.clear();
         set('tasksByNumber', t);
-        if (r && Object.keys(r).length) set('tasksRev', r);
       }
-      // give onSnapshot a tick to apply everywhere
-      setTimeout(()=>location.reload(), 250);
+      setTimeout(()=>location.reload(), 300);
     } catch (e) {
       console.error('Reset failed:', e);
-      alert('Reset failed. See console for details.');
+      alert('Reset failed (Runner only). See console.');
       btn.disabled = false; btn.textContent = originalText;
     }
   });
