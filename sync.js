@@ -1,9 +1,9 @@
-// sync.js — Stable realtime sync for DÄG
-// - Firebase v12.1.0 ESM (CDN)
+// sync.js — Stable realtime sync with global reset epoch
+// - Firebase v12.1.0 (ESM via gstatic CDN)
 // - Per-key revision map (prevents stale overwrites)
+// - Global stateEpoch: when remote epoch is higher, adopt server state unconditionally
 // - Import/Restore to cloud, Reset (keeps tasks), Tasks lock
-// - Robust "apply" so blank devices adopt server state
-// - daegSyncReset() now returns a Promise and throws on errors
+// - Status badge + basic logging
 
 /* ---------- Config ---------- */
 const firebaseConfig = {
@@ -16,11 +16,15 @@ const firebaseConfig = {
   measurementId: "G-Y0LLM4HYLP"
 };
 const GAME_ID = "DAEG";
+
+// All keys we sync. NEW: include "stateEpoch".
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
-  "dark","activePlayer","lastPlayer","tasksLocked"
+  "dark","activePlayer","lastPlayer","tasksLocked",
+  "stateEpoch"
 ];
+
 const DEBUG = true;
 function log(...a){ if (DEBUG) console.log("[sync]", ...a); }
 function warn(...a){ console.warn("[sync]", ...a); }
@@ -64,6 +68,8 @@ setStatus('connecting…');
 function safeParse(v){ try { return v==null?null:JSON.parse(v); } catch { return null; } }
 function packLocal(){ const x={}; for (const k of KEYS) x[k] = safeParse(localStorage.getItem(k)); return x; }
 function fingerprint(obj){ try { return JSON.stringify(obj); } catch { return Math.random().toString(36); } }
+function getLocalEpoch(){ const n = Number(localStorage.getItem('stateEpoch') || '0'); return Number.isFinite(n)?n:0; }
+function setLocalEpoch(n){ localStorage.setItem('stateEpoch', String(n)); }
 
 /* ---------- Per-key revision map ---------- */
 let revMap = safeParse(localStorage.getItem('revMap')) || {}; // {key:int}
@@ -78,14 +84,11 @@ let pushTimer = null;
 let lastSentFingerprint = '';
 const changedKeys = new Set();
 
-/* ---------- Apply remote (stable rules) ---------- */
+/* ---------- Apply remote (epoch-aware) ---------- */
 function isEmptyTasks(obj){
   if (!obj || typeof obj !== 'object') return true;
-  const ks = Object.keys(obj);
-  if (ks.length === 0) return true;
-  for (const k of ks){
-    if (String(obj[k] ?? '').trim() !== '') return false;
-  }
+  const ks = Object.keys(obj); if (ks.length === 0) return true;
+  for (const k of ks){ if (String(obj[k] ?? '').trim() !== '') return false; }
   return true;
 }
 function hasAnyTasks(obj){
@@ -95,8 +98,11 @@ function hasAnyTasks(obj){
 
 function applyRemote(data){
   const incomingRev = data.revMap || {};
+  const remoteEpoch  = Number(data.stateEpoch || 0);
+  const localEpoch   = getLocalEpoch();
+  const epochOverride = remoteEpoch > localEpoch;
 
-  // Merge counters first so comparisons are fair
+  // Merge remote counters first so comparisons are fair
   if (data.revMap && typeof data.revMap === 'object') {
     revMap = { ...revMap, ...data.revMap };
     saveRevMap();
@@ -105,32 +111,49 @@ function applyRemote(data){
   applyingRemote = true;
   let anyChanged = false;
   try {
-    for (const k of KEYS){
-      if (!(k in data)) continue;
-
-      const incRev = Number.isInteger(incomingRev[k]) ? incomingRev[k] : 0;
-      const localStr = localStorage.getItem(k);
-      const localHasValue = localStr != null;
-      const locRev = getRev(k);
-
-      let shouldApply = false;
-
-      if (!localHasValue) shouldApply = true;               // adopt if missing
-      else if (incRev > locRev) shouldApply = true;         // adopt newer
-      else if (k === 'tasksByNumber') {                      // heal blank tasks
-        const localVal  = safeParse(localStr);
-        const remoteVal = data[k];
-        if (isEmptyTasks(localVal) && hasAnyTasks(remoteVal)) shouldApply = true;
-      }
-
-      if (shouldApply){
+    // If remote epoch is newer, adopt everything present in the doc.
+    if (epochOverride) {
+      setLocalEpoch(remoteEpoch);
+      for (const k of KEYS){
+        if (!(k in data)) continue;
         localStorage.setItem(k, JSON.stringify(data[k]));
-        revMap[k] = incRev;
-        anyChanged = true;
-        log("applied", k, "(incRev:", incRev, "locRev:", locRev, ")");
+        if (k !== 'stateEpoch') {
+          const incRev = Number.isInteger(incomingRev[k]) ? incomingRev[k] : 0;
+          revMap[k] = incRev;
+        }
       }
+      saveRevMap();
+      anyChanged = true;
+      log("epoch override -> adopted server state (epoch", remoteEpoch, ")");
+    } else {
+      // Normal per-key rev comparison
+      for (const k of KEYS){
+        if (!(k in data)) continue;
+        if (k === 'stateEpoch') continue; // handled via epochOverride / getter above
+
+        const incRev = Number.isInteger(incomingRev[k]) ? incomingRev[k] : 0;
+        const localStr = localStorage.getItem(k);
+        const localHasValue = localStr != null;
+        const locRev = getRev(k);
+
+        let shouldApply = false;
+        if (!localHasValue) shouldApply = true;          // adopt if missing
+        else if (incRev > locRev) shouldApply = true;    // adopt newer
+        else if (k === 'tasksByNumber') {                // heal blank tasks
+          const localVal  = safeParse(localStr);
+          const remoteVal = data[k];
+          if (isEmptyTasks(localVal) && hasAnyTasks(remoteVal)) shouldApply = true;
+        }
+
+        if (shouldApply){
+          localStorage.setItem(k, JSON.stringify(data[k]));
+          revMap[k] = incRev;
+          anyChanged = true;
+          log("applied", k, "(incRev:", incRev, "locRev:", locRev, ")");
+        }
+      }
+      if (anyChanged) saveRevMap();
     }
-    if (anyChanged) saveRevMap();
   } finally { applyingRemote = false; }
 
   if (anyChanged) window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
@@ -146,7 +169,7 @@ async function pushNow(){
     const payload = {};
     for (const k of changedKeys){ if (k in allLocal) payload[k] = allLocal[k]; }
 
-    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:8 }, ...payload };
+    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:9 }, ...payload };
     const fp = fingerprint(sendBody);
     if (fp === lastSentFingerprint) return;
 
@@ -203,40 +226,44 @@ function initialSnapshot(preservedTasks){
   };
 }
 
-/** Cloud reset that preserves tasks; returns Promise, throws on failure. */
+/** Cloud reset that preserves tasks and bumps a global epoch. */
 async function doRemoteReset(){
   if (!writeable) {
     alert('This device is read-only (not signed in). Try another device/network.');
     throw new Error('read-only');
   }
 
+  // Determine next epoch from server or local
+  let server = {};
+  try { const snap = await getDoc(gameRef); if (snap.exists()) server = snap.data() || {}; } catch {}
+  const currentServerEpoch = Number(server.stateEpoch || 0);
+  const nextEpoch = Math.max(currentServerEpoch, getLocalEpoch()) + 1;
+
   // Prefer server tasks; else local
-  let preservedTasks = {};
-  try { const snap = await getDoc(gameRef); if (snap.exists()) preservedTasks = snap.data()?.tasksByNumber || {}; } catch {}
-  if (!preservedTasks || Object.keys(preservedTasks).length === 0) preservedTasks = packLocal().tasksByNumber || {};
+  const preservedTasks = (server.tasksByNumber && Object.keys(server.tasksByNumber).length)
+    ? server.tasksByNumber
+    : (packLocal().tasksByNumber || {});
 
   const fresh = initialSnapshot(preservedTasks);
+  fresh.stateEpoch = nextEpoch;       // publish the new epoch
 
-  // bump revs for the keys we reset
+  // bump revs for the keys we reset (so older clients that ignore epoch still see newer revs)
   for (const k of ["usedSets","logEntries","playerPoints","pointsLog","mapState","activePlayer","lastPlayer"]) {
     bumpRev(k); changedKeys.add(k);
   }
+  // Also store epoch locally and mark it changed
+  setLocalEpoch(nextEpoch);
+  changedKeys.add("stateEpoch");
 
-  // Apply locally first (without bumping again)
+  // Apply locally first (without re-bumping)
   applyingRemote = true;
   try { for (const k of Object.keys(fresh)) localStorage.setItem(k, JSON.stringify(fresh[k])); }
   finally { applyingRemote = false; }
 
-  // Push to Firestore with updated revMap
-  try {
-    await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:8 }, ...fresh }, { merge:true });
-  } catch (e) {
-    warn('reset push failed:', e);
-    throw e;
-  } finally {
-    changedKeys.clear();
-    window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
-  }
+  // Push to Firestore with updated revMap + epoch
+  await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:9 }, ...fresh }, { merge:true });
+  changedKeys.clear();
+  window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
   return true;
 }
 window.daegSyncReset = doRemoteReset;
