@@ -10,7 +10,6 @@ var NAMES = {
   GE:'Genève', TI:'Ticino', JU:'Jura'
 };
 function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
-function canEdit(){ return (typeof window.canEdit === 'function') ? window.canEdit() : true; }
 
 var mapState = load('mapState', {});   // {ZH:'D', ...}
 
@@ -76,7 +75,6 @@ function wireCantons(){
     var id = normId(g.id); if(!id) return; g.id = id;
 
     g.addEventListener('click', function(){
-      if (!canEdit()) { alert('Runner only.'); return; }
       var owner = mapState[id];
       var me = myPlayer();
       if (!owner) mapState[id] = me;
