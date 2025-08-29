@@ -1,86 +1,72 @@
-/* ===== Numbers page: persistent draws, tasks, and claim buttons ===== */
+/* ===== Tasks page: single Draw for myPlayer; runner-only edits ===== */
 const TOTAL = 26;
-const PLAYERS = ["D", "Ä", "G"];
 
 const statusEl  = document.getElementById("status");
 const logBody   = document.getElementById("logBody");
 const tasksBody = document.getElementById("tasksBody");
 const resetBtn  = document.getElementById("reset");
-const lockToggle = document.getElementById("toggleTasksLock");
+const drawBtn   = document.getElementById("btn-draw");
 
-const btns = {
-  D: document.getElementById("btn-d"),
-  Ä: document.getElementById("btn-ae"),
-  G: document.getElementById("btn-g"),
-};
-
-/* ---------- load state ---------- */
 let used = loadJson("usedSets", { D: [], Ä: [], G: [] });
 Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
-let logEntries = loadJson("logEntries", []);              // [{id,t,p,n,task,claimed}]
-let tasks      = loadJson("tasksByNumber", emptyTasks()); // {"1":"..."}
-let tasksLocked = !!loadJson("tasksLocked", false);
+let logEntries = loadJson("logEntries", []);               // [{id,t,p,n,task,claimed}]
+let tasks      = loadJson("tasksByNumber", emptyTasks());  // {"1":"..."}
 
-/* ---------- init UI ---------- */
+/* ---------- helpers ---------- */
+function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
+function canEdit(){ return typeof window.canEdit === 'function' ? window.canEdit() : true; }
+
+/* ---------- init ---------- */
 renderStatus();
-PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
 renderLogFromStorage();
 renderTasksTable();
-if (lockToggle) {
-  lockToggle.checked = tasksLocked;
-  lockToggle.addEventListener('change', ()=>{
-    tasksLocked = !!lockToggle.checked;
-    saveJson("tasksLocked", tasksLocked);
-    setTasksInputsDisabled(tasksLocked);
-    window.daegSyncTouch?.();
-  });
-}
+updateEditability();
 
-/* ---------- live refresh from sync, but be kind while typing ---------- */
+/* live refresh from sync + runner state changes */
 window.addEventListener("daeg-sync-apply", handleExternalUpdate);
+window.addEventListener("daeg-edit-state", updateEditability);
 
 /* ---------- events ---------- */
-Object.keys(btns).forEach(p => btns[p].addEventListener("click", () => handlePress(p)));
-resetBtn.addEventListener("click", () => {
-  if (!confirm("Reset numbers, log, and tasks?")) return;
-  used = { D: new Set(), Ä: new Set(), G: new Set() };
-  logEntries = [];
-  // tasks are preserved globally by sync reset; local stays as-is.
-  persistUsed();
-  saveJson("logEntries", logEntries);
-  Object.values(btns).forEach(b => (b.disabled = false));
-  clearChildren(logBody);
-  renderTasksTable();
-  renderStatus();
-});
-
-/* ---------- core logic ---------- */
-function handlePress(player){
-  const set = used[player];
+drawBtn.addEventListener("click", () => {
+  if (!canEdit()) return alert('Runner only.');
+  const p = myPlayer();
+  const set = used[p] || new Set();
   const n = nextAvailableFrom(rand1toN(TOTAL), set);
   const ts = new Date();
 
   if (n === null) {
-    const entry = { id: uid(), t: fmt(ts), p: player, n: "—", task: "", claimed: true };
+    const entry = { id: uid(), t: fmt(ts), p, n: "—", task: "", claimed: true };
     logEntries.push(entry); saveJson("logEntries", logEntries);
     appendLogRow(entry, true);
     return;
   }
 
-  set.add(n); persistUsed();
+  set.add(n); used[p] = set; persistUsed();
   const taskText = String(tasks[String(n)] || "").trim();
-  const entry = { id: uid(), t: fmt(ts), p: player, n, task: taskText, claimed: false };
+  const entry = { id: uid(), t: fmt(ts), p, n, task: taskText, claimed: false };
   logEntries.push(entry); saveJson("logEntries", logEntries);
   appendLogRow(entry, true);
 
-  if (set.size === TOTAL) btns[player].disabled = true;
   renderStatus();
-  window.daegSyncTouch?.(); // nudge push
-}
+  window.daegSyncTouch?.();
+});
 
+resetBtn.addEventListener("click", () => {
+  if (!canEdit()) return alert('Runner only.');
+  if (!confirm("Reset numbers & log? (Tasks are kept)")) return;
+  used = { D: new Set(), Ä: new Set(), G: new Set() };
+  logEntries = [];
+  persistUsed();
+  saveJson("logEntries", logEntries);
+  clearChildren(logBody);
+  renderStatus();
+  window.daegSyncTouch?.();
+});
+
+/* ---------- persist ---------- */
 function persistUsed(){
   saveJson("usedSets", {
-    D: Array.from(used.D), Ä: Array.from(used.Ä), G: Array.from(used.G),
+    D: Array.from(used.D || []), Ä: Array.from(used.Ä || []), G: Array.from(used.G || []),
   });
 }
 
@@ -89,7 +75,6 @@ function appendLogRow(e, newestOnTop){
   if (!logBody) return;
 
   const tr = document.createElement("tr");
-
   const tdTime  = document.createElement("td"); tdTime.textContent = e.t;
   const tdP     = document.createElement("td"); tdP.textContent = e.p;
   const tdNum   = document.createElement("td"); tdNum.textContent = e.n;
@@ -98,19 +83,18 @@ function appendLogRow(e, newestOnTop){
 
   if (Number.isInteger(e.n)) {
     const btn = document.createElement("button");
-    btn.className = "btn claim";
+    btn.className = "btn claim runner-only";
     btn.textContent = e.claimed ? "✓ Claimed" : "+500";
-    btn.disabled = !!e.claimed;
+    btn.disabled = !!e.claimed || !canEdit();
     btn.addEventListener("click", () => {
+      if (!canEdit()) return alert('Runner only.');
       if (btn.disabled) return;
       const idx = logEntries.findIndex(x => x.id === e.id);
       if (idx >= 0 && !logEntries[idx].claimed) {
         const player = logEntries[idx].p;
         const taskText = logEntries[idx].task || '';
-
         addPoints(player, 500);
         appendPointsLog(player, 500, taskText, e.id);
-
         logEntries[idx].claimed = true;
         saveJson("logEntries", logEntries);
         btn.disabled = true;
@@ -132,7 +116,7 @@ function renderLogFromStorage(){
   for (let i = logEntries.length - 1; i >= 0; i--) appendLogRow(logEntries[i], false);
 }
 
-/* ---------- tasks table (respects Lock) ---------- */
+/* ---------- tasks table ---------- */
 function renderTasksTable(){
   clearChildren(tasksBody);
   for (let i = 1; i <= 26; i++) {
@@ -145,11 +129,15 @@ function renderTasksTable(){
     inp.value = tasks[String(i)] || "";
     inp.setAttribute("data-num", String(i));
     inp.placeholder = `Enter task for ${i}`;
-
     const saveIt = () => {
-      if (tasksLocked) return; // ignore while locked
-      tasks[String(i)] = inp.value;
-      saveJson("tasksByNumber", tasks);
+      if (!canEdit()) return; // runner-only edits
+      const key = String(i);
+      const val = inp.value;
+      if (tasks[key] !== val) {
+        tasks[key] = val;
+        saveJson("tasksByNumber", tasks);
+        window.daegSyncTouch?.();
+      }
     };
     inp.addEventListener("input", saveIt);
     inp.addEventListener("change", saveIt);
@@ -158,7 +146,7 @@ function renderTasksTable(){
     tr.append(tdNum, tdInp);
     tasksBody.appendChild(tr);
   }
-  setTasksInputsDisabled(tasksLocked);
+  setTasksInputsDisabled(!canEdit());
 }
 
 function setTasksInputsDisabled(disabled){
@@ -166,34 +154,22 @@ function setTasksInputsDisabled(disabled){
   inputs.forEach(inp => { inp.disabled = !!disabled; });
 }
 
-/* ---------- external update handler (preserve focus) ---------- */
+/* ---------- external update handler ---------- */
 function handleExternalUpdate(){
-  // Refresh from storage
   let u = loadJson("usedSets", { D:[], Ä:[], G:[] });
   Object.keys(u).forEach(k => u[k] = new Set(u[k] || []));
   used = u;
   logEntries = loadJson("logEntries", []);
-  const newTasks = loadJson("tasksByNumber", tasks);
-  tasksLocked = !!loadJson("tasksLocked", tasksLocked);
+  tasks = loadJson("tasksByNumber", tasks);
 
-  // Are we currently editing one of the task inputs?
-  const active = document.activeElement;
-  const editing = active && tasksBody.contains(active) && active.tagName === 'INPUT' && !tasksLocked;
-
-  // Always redraw log & status
-  Object.values(btns).forEach(b => b.disabled = false);
-  PLAYERS.forEach(p => { if (used[p].size === TOTAL) btns[p].disabled = true; });
   clearChildren(logBody); renderLogFromStorage();
   renderStatus();
 
-  // Sync the toggle UI if needed
-  if (lockToggle) lockToggle.checked = tasksLocked;
-
-  // For tasks: if not editing, rebuild table; if editing, update other rows
-  tasks = newTasks;
-  if (!editing) {
-    renderTasksTable();
-  } else {
+  // refresh task inputs, preserving focus if editing and still runner
+  const active = document.activeElement;
+  const editing = active && tasksBody.contains(active) && active.tagName === 'INPUT' && canEdit();
+  if (!editing) renderTasksTable();
+  else {
     const activeNum = active.getAttribute('data-num');
     const inputs = tasksBody.querySelectorAll('input[data-num]');
     inputs.forEach(inp=>{
@@ -206,7 +182,15 @@ function handleExternalUpdate(){
   }
 }
 
-/* --- cross-page points credit + logging --- */
+/* ----- editability toggles ----- */
+function updateEditability(){
+  const editable = canEdit();
+  // Toggle all runner-only controls
+  document.querySelectorAll('.runner-only').forEach(el => { el.disabled = !editable; });
+  setTasksInputsDisabled(!editable);
+}
+
+/* ---------- cross-page points credit + logging ---------- */
 function addPoints(player, amount){
   const pts = loadJson("playerPoints", { D:500, Ä:500, G:500 });
   pts[player] = (pts[player] || 0) + amount;
@@ -229,6 +213,6 @@ function uid(){ if (crypto && crypto.getRandomValues){ const a=new Uint32Array(2
 function clearChildren(el){ while (el && el.firstChild) el.removeChild(el.firstChild); }
 
 function renderStatus(){
-  const left = L => TOTAL - (used[L] ? used[L].size : 0);
+  const left = L => 26 - (used[L] ? used[L].size : 0);
   statusEl.textContent = `Numbers left — D: ${left("D")}, Ä: ${left("Ä")}, G: ${left("G")}`;
 }
