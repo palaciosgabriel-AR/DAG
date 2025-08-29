@@ -1,4 +1,4 @@
-/* ===== Tasks page: single Draw for myPlayer; runner-only edits ===== */
+/* ===== Tasks page: single Draw for myPlayer; runner-gated in handlers ===== */
 const TOTAL = 26;
 
 const statusEl  = document.getElementById("status");
@@ -7,7 +7,7 @@ const tasksBody = document.getElementById("tasksBody");
 const resetBtn  = document.getElementById("reset");
 const drawBtn   = document.getElementById("btn-draw");
 
-// IMPORTANT: always quote "Ä" and use bracket access
+// Always quote non-ASCII keys
 let used = loadJson("usedSets", { "D": [], "Ä": [], "G": [] });
 Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
 let logEntries = loadJson("logEntries", []);               // [{id,t,p,n,task,claimed}]
@@ -20,14 +20,13 @@ function canEdit(){ return typeof window.canEdit === 'function' ? window.canEdit
 renderStatus();
 renderLogFromStorage();
 renderTasksTable();
-updateEditability();
 
 window.addEventListener("daeg-sync-apply", handleExternalUpdate);
-window.addEventListener("daeg-edit-state", updateEditability);
 
 /* ---------- events ---------- */
 drawBtn.addEventListener("click", () => {
-  if (!canEdit()) return alert('Runner only.');
+  if (!canEdit()) { alert('Runner only.'); return; }
+
   const p = myPlayer();
   const set = used[p] || new Set();
   const n = nextAvailableFrom(rand1toN(TOTAL), set);
@@ -52,7 +51,7 @@ drawBtn.addEventListener("click", () => {
 });
 
 resetBtn.addEventListener("click", () => {
-  if (!canEdit()) return alert('Runner only.');
+  if (!canEdit()) { alert('Runner only.'); return; }
   if (!confirm("Reset numbers & log? (Tasks are kept)")) return;
   used = { "D": new Set(), "Ä": new Set(), "G": new Set() };
   logEntries = [];
@@ -84,11 +83,11 @@ function appendLogRow(e, newestOnTop){
 
   if (Number.isInteger(e.n)) {
     const btn = document.createElement("button");
-    btn.className = "btn claim runner-only";
+    btn.className = "btn claim";
     btn.textContent = e.claimed ? "✓ Claimed" : "+500";
-    btn.disabled = !!e.claimed || !canEdit();
+    btn.disabled = !!e.claimed;                     // never disabled just for role
     btn.addEventListener("click", () => {
-      if (!canEdit()) return alert('Runner only.');
+      if (!canEdit()) { alert('Runner only.'); return; }
       if (btn.disabled) return;
       const idx = logEntries.findIndex(x => x.id === e.id);
       if (idx >= 0 && !logEntries[idx].claimed) {
@@ -141,11 +140,6 @@ function renderTasksTable(){
     tr.append(tdNum, tdInp);
     tasksBody.appendChild(tr);
   }
-  setTasksInputsDisabled(!canEdit());
-}
-
-function setTasksInputsDisabled(disabled){
-  tasksBody.querySelectorAll('input[type="text"][data-num]').forEach(inp => { inp.disabled = !!disabled; });
 }
 
 /* ---------- external update ---------- */
@@ -158,8 +152,9 @@ function handleExternalUpdate(){
   clearChildren(logBody); renderLogFromStorage();
   renderStatus();
 
+  // Refresh task inputs (keep current active caret untouched)
   const active = document.activeElement;
-  const editing = active && tasksBody.contains(active) && active.tagName === 'INPUT' && canEdit();
+  const editing = active && tasksBody.contains(active) && active.tagName === 'INPUT';
   if (!editing) renderTasksTable();
   else {
     const activeNum = active.getAttribute('data-num');
@@ -171,12 +166,6 @@ function handleExternalUpdate(){
       }
     });
   }
-}
-
-function updateEditability(){
-  const editable = canEdit();
-  document.querySelectorAll('.runner-only').forEach(el => { el.disabled = !editable; });
-  setTasksInputsDisabled(!editable);
 }
 
 /* ---------- cross-page points ---------- */
