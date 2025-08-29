@@ -6,8 +6,8 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   line-height: 1.5;
-  background: #b00016;
-  color: #ffffff;
+  background: #b00016;      /* deep red */
+  color: #ffffff;           /* white text */
 }
 .container { max-width: 1000px; margin: 1.2rem auto 3rem; padding: 0 1rem; }
 
@@ -42,12 +42,33 @@ body {
 .data-actions { display: inline-flex; gap: .4rem; align-items: center; }
 .btn-small { padding: .35rem .6rem; font-size: .9rem; }
 
+/* ---------- Who am I (bigger) ---------- */
+.whoami { display:flex; gap:.45rem; align-items:center; }
+.whoami select {
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: .25rem .6rem;
+  border-radius: .5rem;
+  border: 1px solid rgba(255,255,255,.6);
+  background: rgba(255,255,255,.95);
+  color: #111;
+}
+
+/* Live badge */
+#liveStatus {
+  margin-left:.5rem;
+  padding:.2rem .5rem;
+  border-radius:.5rem;
+  border:1px solid rgba(255,255,255,.5);
+  background:rgba(46,204,113,.25);
+  color:#fff;
+  font-size:.85rem;
+  white-space:nowrap;
+}
+
 .status { text-align: center; margin: 0 0 1.1rem; font-weight: 700; }
 
-/* Role box */
-.rolebox select { padding: .2rem .4rem; border-radius: .4rem; border: 1px solid rgba(255,255,255,.6); background: #fff; color:#111; }
-
-/* ---------- Scoreboards ---------- */
+/* ---------- Gorgeous scoreboards (Points + Map) ---------- */
 .scoreboard {
   display: flex;
   gap: .8rem;
@@ -71,13 +92,21 @@ body {
 }
 .pill .tag { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
 .pill .label, .pill .value { font-variant-numeric: tabular-nums; line-height: 1; }
+
+/* sizes: letters same size as numbers */
 body[data-page="points"] .scoreboard .label,
-body[data-page="points"] .scoreboard .value { font-size: clamp(1.6rem, 4.6vw, 2.6rem); }
+body[data-page="points"] .scoreboard .value {
+  font-size: clamp(1.6rem, 4.6vw, 2.6rem);
+}
 body[data-page="map"] .scoreboard .label,
-body[data-page="map"] .scoreboard .value { font-size: clamp(1.3rem, 3.5vw, 2.2rem); }
-.pill-d .tag  { background: #4B5320; }
-.pill-ae .tag { background: #7EC8E3; }
-.pill-g .tag  { background: #004080; }
+body[data-page="map"] .scoreboard .value {
+  font-size: clamp(1.3rem, 3.5vw, 2.2rem);
+}
+
+.pill-d .tag  { background: #4B5320; } /* Military Green */
+.pill-ae .tag { background: #7EC8E3; } /* Light Blue */
+.pill-g .tag  { background: #004080; } /* Dark Blue */
+
 .crown { font-size: 1.15em; line-height: 1; }
 
 /* ---------- Generic buttons ---------- */
@@ -112,15 +141,19 @@ th, td { border-bottom: 1px solid rgba(255,255,255,.25); padding: .55rem .5rem; 
 tbody tr:last-child td { border-bottom: none; }
 
 /* ---------- Forms ---------- */
-input[type="text"], input[type="number"], textarea {
+input[type="text"], input[type="number"], textarea, select {
   width: 100%; padding: .55rem .6rem; border-radius: .6rem;
   border: 1px solid rgba(255,255,255,.35);
   background: rgba(255,255,255,.95); color: #111;
 }
+label { display: inline-flex; align-items: center; gap: .5rem; }
+.form-row { display: grid; grid-template-columns: 1fr 2fr; gap: .6rem; align-items: center; }
+.form-row + .form-row { margin-top: .6rem; }
 
 /* ---------- Numbers/Tasks page ---------- */
 .task-table { margin-top: 1rem; }
 .task-table th { white-space: nowrap; }
+.task-table input { background: rgba(255,255,255,.95); }
 .claim { font-size: .8rem; padding: .25rem .45rem; border-radius: .4rem; }
 
 /* ---------- Map page ---------- */
