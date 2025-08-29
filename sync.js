@@ -1,7 +1,8 @@
 // sync.js — Firestore <-> localStorage realtime sync (Firebase v12.1.0)
-// - Per-key revision map (conflict-proof) for KEYS below
-// - Status badge, heartbeat, Reset (keeps tasks), Import->cloud restore, tasks lock
-// - FIX: If a key is missing locally, always adopt the remote value (prevents empty tasks on a new device).
+// Features: per-key revision map (conflict-proof), status badge, heartbeat,
+// cloud-safe Import/Restore, Reset (keeps tasks), tasks lock.
+// FIX: if a device has an "empty" tasks list, it adopts the cloud tasks even
+// when local rev >= remote (heals stale/blank local cache cases).
 
 const firebaseConfig = {
   apiKey: "AIzaSyBukCK_qvHrHqkUYR90ch25vV_tsbe2RBo",
@@ -18,7 +19,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebas
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// Keys to sync (incl. tasksLocked)
+// Keys we sync (includes tasksLocked)
 const KEYS = [
   "usedSets","logEntries","tasksByNumber",
   "playerPoints","pointsLog","mapState",
@@ -68,6 +69,24 @@ function saveRevMap(){ localStorage.setItem('revMap', JSON.stringify(revMap)); }
 function getRev(key){ return Number.isInteger(revMap[key]) ? revMap[key] : 0; }
 function bumpRev(key){ revMap[key] = getRev(key) + 1; saveRevMap(); }
 
+/* ---------- Empty/content checks for tasks ---------- */
+function isEmptyTasks(obj){
+  if (!obj || typeof obj !== 'object') return true;
+  const ks = Object.keys(obj);
+  if (ks.length === 0) return true;
+  // Treat all-empty strings as empty
+  for (const k of ks){
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim() !== '') return false;
+    if (typeof v === 'number') return false;
+  }
+  return true;
+}
+function hasAnyContentTasks(obj){
+  if (!obj || typeof obj !== 'object') return false;
+  return Object.values(obj).some(v => String(v||'').trim() !== '');
+}
+
 /* ---------- Sync engine ---------- */
 let applyingRemote = false;
 let writeable = false;
@@ -81,7 +100,7 @@ function applyRemote(data){
 
   // Merge remote counters first so comparisons are fair
   if (data.revMap && typeof data.revMap === 'object') {
-    revMap = { ...revMap, ...data.revMap }; // remote overwrites local for common keys
+    revMap = { ...revMap, ...data.revMap };
     saveRevMap();
   }
 
@@ -93,11 +112,19 @@ function applyRemote(data){
 
       const incRev = Number.isInteger(incomingRev[k]) ? incomingRev[k] : 0;
       const locRev = getRev(k);
-      const localHasValue = localStorage.getItem(k) != null;
+      const localStr = localStorage.getItem(k);
+      const localHasValue = localStr != null;
 
-      // FIX: if we don't have this key locally yet, adopt remote value.
-      // Otherwise, only apply when remote revision is newer.
-      const shouldApply = !localHasValue || incRev > locRev;
+      let shouldApply = !localHasValue || incRev > locRev;
+
+      // SPECIAL HEALING FOR TASKS: if local exists but is empty-ish, and remote has content, adopt it.
+      if (!shouldApply && k === 'tasksByNumber') {
+        const localVal  = safeParse(localStr);
+        const remoteVal = data[k];
+        if (isEmptyTasks(localVal) && hasAnyContentTasks(remoteVal)) {
+          shouldApply = true;
+        }
+      }
 
       if (shouldApply){
         localStorage.setItem(k, JSON.stringify(data[k]));
@@ -121,7 +148,7 @@ async function pushNow(){
     const allLocal = packLocal();
     const payload = {};
     for (const k of changedKeys){ if (k in allLocal) payload[k] = allLocal[k]; }
-    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:5 }, ...payload };
+    const sendBody = { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:6 }, ...payload };
     const fp = fingerprint(sendBody);
     if (fp === lastSentFingerprint) return;
     await setDoc(gameRef, sendBody, { merge:true });
@@ -186,7 +213,7 @@ async function doRemoteReset(){
   applyingRemote = true;
   try { for (const k of Object.keys(fresh)) localStorage.setItem(k, JSON.stringify(fresh[k])); }
   finally { applyingRemote = false; }
-  await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:5 }, ...fresh }, { merge:true });
+  await setDoc(gameRef, { revMap, _meta:{ updatedAt:serverTimestamp(), updatedBy:uid, version:6 }, ...fresh }, { merge:true });
   changedKeys.clear();
   window.dispatchEvent(new CustomEvent("daeg-sync-apply"));
 }
