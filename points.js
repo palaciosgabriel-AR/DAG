@@ -1,8 +1,8 @@
 /* Points page: unified log (no runner gating) */
-var summary  = document.getElementById('summary');
-var body     = document.getElementById('pointsBody');
-var spendBtn = document.getElementById('spend');
-var errEl    = document.getElementById('error');
+var summaryEl  = document.getElementById('summary');
+var bodyEl     = document.getElementById('pointsBody');
+var spendBtn   = document.getElementById('spend');
+var errEl      = document.getElementById('error');
 
 var minutesEl = document.getElementById('minutes');
 var noteEl    = document.getElementById('note');
@@ -12,20 +12,15 @@ function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
 var points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
 var logData = load('pointsLog', []); // {id,t,p,points,note,undoOf?,undone?,originNumbersId?}
 
-/* If server had no balances, initialize to 500 each (once) */
-ensureStartingBalances();
-
 renderSummary();
 renderLog();
 
 /* Reflect remote updates */
 window.addEventListener("daeg-sync-apply", function(){
   points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
-  ensureStartingBalances();
-  renderSummary();
-  body.innerHTML=''; 
   logData = load('pointsLog', []);
-  renderLog();
+  renderSummary();
+  clear(bodyEl); renderLog();
 });
 
 /* Spend -> negative points (= -minutes*10) for myPlayer */
@@ -48,8 +43,11 @@ spendBtn.addEventListener('click', function(){
   var entry = { id: uid(), t: nowHHMMSS(), p: current, points: delta, note: note };
   logData.push(entry); save('pointsLog', logData);
 
-  prependRow(entry);
+  // Immediate UI update
+  prependRow(entry, true);
   minutesEl.value = ''; noteEl.value = '';
+  renderSummary();
+
   if (window.daegSyncTouch) window.daegSyncTouch();
 });
 
@@ -58,7 +56,7 @@ function renderSummary(){
   var d  = points['D']  || 0;
   var ae = points['Ä']  || 0;
   var g  = points['G']  || 0;
-  summary.innerHTML = renderScoreboard([
+  summaryEl.innerHTML = renderScoreboard([
     { label: 'D',  value: d,  cls: 'pill-d'  },
     { label: 'Ä',  value: ae, cls: 'pill-ae' },
     { label: 'G',  value: g,  cls: 'pill-g'  },
@@ -91,8 +89,8 @@ function prependRow(e, insertTop){
   }
   tr.appendChild(actions);
 
-  if (insertTop && body.firstChild) body.insertBefore(tr, body.firstChild);
-  else body.appendChild(tr);
+  if (insertTop && bodyEl.firstChild) bodyEl.insertBefore(tr, bodyEl.firstChild);
+  else bodyEl.appendChild(tr);
 }
 
 /* ---------- Undo ---------- */
@@ -113,15 +111,14 @@ function doUndo(origEntry, buttonEl){
     undoOf: origEntry.id
   };
   logData.push(undo);
-
   origEntry.undone = true;
   save('pointsLog', logData);
 
-  if (origPts > 0) unclaimNumbersTask(origEntry);
-
-  if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Undone'; }
   prependRow(undo, true);
   renderSummary();
+
+  if (origPts > 0) unclaimNumbersTask(origEntry);
+  if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Undone'; }
   if (window.daegSyncTouch) window.daegSyncTouch();
 }
 
@@ -146,20 +143,9 @@ function unclaimNumbersTask(pointsEntry){
 }
 
 /* ---------- Helpers ---------- */
-function ensureStartingBalances(){
-  var dMissing  = typeof points['D']  !== 'number';
-  var aeMissing = typeof points['Ä']  !== 'number';
-  var gMissing  = typeof points['G']  !== 'number';
-  if (dMissing && aeMissing && gMissing) {
-    points = {"D":500,"Ä":500,"G":500};
-    save('playerPoints', points);
-    if (window.daegSyncTouch) window.daegSyncTouch();
-  }
-}
 function applyDelta(player, delta){
   points[player] = (points[player]||0) + delta;
   save('playerPoints', points);
-  renderSummary();
 }
 function td(text){ var el=document.createElement('td'); el.textContent=text; return el; }
 function tdText(text){ var el=document.createElement('td'); el.textContent = text; return el; }
@@ -176,3 +162,4 @@ function renderScoreboard(items, ariaLabel){
   }).join('');
   return '<div class="scoreboard" aria-label="'+ariaLabel+'">'+pills+'</div>';
 }
+function clear(el){ while(el && el.firstChild) el.removeChild(el.firstChild); }
