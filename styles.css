@@ -14,7 +14,7 @@ body {
 /* ---------- Header + Nav + Data actions ---------- */
 .topbar {
   display: grid;
-  grid-template-columns: 1fr auto auto auto; /* brand | nav | data | theme */
+  grid-template-columns: 1fr auto auto auto auto; /* brand | nav | data | lock | theme */
   align-items: center;
   gap: .8rem;
   padding: .8rem 1rem;
@@ -122,6 +122,7 @@ input[type="text"], input[type="number"], textarea {
   border: 1px solid rgba(255,255,255,.35);
   background: rgba(255,255,255,.95); color: #111;
 }
+input[disabled] { opacity: .65; cursor: not-allowed; }
 label { display: inline-flex; align-items: center; gap: .5rem; }
 .form-row { display: grid; grid-template-columns: 1fr 2fr; gap: .6rem; align-items: center; }
 .form-row + .form-row { margin-top: .6rem; }
@@ -135,9 +136,9 @@ label { display: inline-flex; align-items: center; gap: .5rem; }
 /* ---------- Map page ---------- */
 .map-wrap { position: relative; display: flex; justify-content: center; }
 #ch-map {
-  width: 100%;                 /* force width in Safari */
+  width: 100%;
   height: auto;
-  aspect-ratio: 1000 / 700;    /* guarantee visible box even before shapes */
+  aspect-ratio: 1000 / 700;
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.25);
   border-radius: .8rem;
