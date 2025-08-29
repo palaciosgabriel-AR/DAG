@@ -12,15 +12,20 @@ function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
 var points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
 var logData = load('pointsLog', []); // {id,t,p,points,note,undoOf?,undone?,originNumbersId?}
 
+/* If server had no balances, initialize to 500 each (once) */
+ensureStartingBalances();
+
 renderSummary();
 renderLog();
 
 /* Reflect remote updates */
 window.addEventListener("daeg-sync-apply", function(){
   points  = load('playerPoints', {"D":500,"Ä":500,"G":500});
-  logData = load('pointsLog', []);
+  ensureStartingBalances();
   renderSummary();
-  body.innerHTML=''; renderLog();
+  body.innerHTML=''; 
+  logData = load('pointsLog', []);
+  renderLog();
 });
 
 /* Spend -> negative points (= -minutes*10) for myPlayer */
@@ -141,6 +146,16 @@ function unclaimNumbersTask(pointsEntry){
 }
 
 /* ---------- Helpers ---------- */
+function ensureStartingBalances(){
+  var dMissing  = typeof points['D']  !== 'number';
+  var aeMissing = typeof points['Ä']  !== 'number';
+  var gMissing  = typeof points['G']  !== 'number';
+  if (dMissing && aeMissing && gMissing) {
+    points = {"D":500,"Ä":500,"G":500};
+    save('playerPoints', points);
+    if (window.daegSyncTouch) window.daegSyncTouch();
+  }
+}
 function applyDelta(player, delta){
   points[player] = (points[player]||0) + delta;
   save('playerPoints', points);
