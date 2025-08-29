@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DÄG across Switzerland — Numbers & Tasks</title>
+  <title>DÄG across Switzerland — Tasks</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body data-page="numbers">
@@ -12,7 +12,7 @@
       <span class="flag">🇨🇭</span><strong>DÄG across Switzerland</strong><span class="flag">🇨🇭</span>
     </div>
     <nav class="nav">
-      <a href="./index.html" class="active">Numbers</a>
+      <a href="./index.html" class="active">Tasks</a>
       <a href="./points.html">Points</a>
       <a href="./map.html">Map</a>
     </nav>
@@ -22,8 +22,6 @@
       <input id="importFile" type="file" accept="application/json" hidden>
       <button id="resetAll" class="btn btn-small" title="Reset all saved data">Reset all</button>
     </div>
-    <!-- NEW: Lock tasks (syncs to everyone) -->
-    <label class="toggle"><input type="checkbox" id="toggleTasksLock"> Lock tasks</label>
     <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
   </header>
 
@@ -31,9 +29,7 @@
     <p id="status" class="status"></p>
 
     <section class="buttons">
-      <button id="btn-d"  class="btn btn-letter">D</button>
-      <button id="btn-ae" class="btn btn-letter">Ä</button>
-      <button id="btn-g"  class="btn btn-letter">G</button>
+      <button id="btn-draw" class="btn btn-letter runner-only" title="Draw a number for your player">Draw</button>
     </section>
 
     <section class="log">
@@ -53,13 +49,13 @@
     </section>
 
     <footer class="footer">
-      <button id="reset" class="btn btn-reset" title="Reset numbers, log, and tasks">Reset</button>
+      <button id="reset" class="btn btn-reset runner-only" title="Reset numbers, log (tasks kept)">Reset</button>
     </footer>
   </main>
 
-  <!-- Order: helpers -> realtime sync -> page logic -->
-  <script src="./shared.js" defer></script>
+  <!-- Load sync (runner+player), then shared helpers, then page logic -->
   <script type="module" src="./sync.js"></script>
+  <script src="./shared.js" defer></script>
   <script src="./numbers.js" defer></script>
 </body>
 </html>
