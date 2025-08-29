@@ -7,7 +7,8 @@ const tasksBody = document.getElementById("tasksBody");
 const resetBtn  = document.getElementById("reset");
 const drawBtn   = document.getElementById("btn-draw");
 
-let used = loadJson("usedSets", { D: [], Ä: [], G: [] });
+// IMPORTANT: always quote "Ä" and use bracket access
+let used = loadJson("usedSets", { "D": [], "Ä": [], "G": [] });
 Object.keys(used).forEach(k => used[k] = new Set(used[k] || []));
 let logEntries = loadJson("logEntries", []);               // [{id,t,p,n,task,claimed}]
 let tasks      = loadJson("tasksByNumber", emptyTasks());  // {"1":"..."}
@@ -53,7 +54,7 @@ drawBtn.addEventListener("click", () => {
 resetBtn.addEventListener("click", () => {
   if (!canEdit()) return alert('Runner only.');
   if (!confirm("Reset numbers & log? (Tasks are kept)")) return;
-  used = { D: new Set(), Ä: new Set(), G: new Set() };
+  used = { "D": new Set(), "Ä": new Set(), "G": new Set() };
   logEntries = [];
   persistUsed();
   saveJson("logEntries", logEntries);
@@ -65,7 +66,9 @@ resetBtn.addEventListener("click", () => {
 /* ---------- persist ---------- */
 function persistUsed(){
   saveJson("usedSets", {
-    D: Array.from(used.D || []), Ä: Array.from(used.Ä || []), G: Array.from(used.G || []),
+    "D": Array.from(used["D"] || []),
+    "Ä": Array.from(used["Ä"] || []),
+    "G": Array.from(used["G"] || [])
   });
 }
 
@@ -147,7 +150,7 @@ function setTasksInputsDisabled(disabled){
 
 /* ---------- external update ---------- */
 function handleExternalUpdate(){
-  let u = loadJson("usedSets", { D:[], Ä:[], G:[] });
+  let u = loadJson("usedSets", { "D":[], "Ä":[], "G":[] });
   Object.keys(u).forEach(k => u[k] = new Set(u[k] || []));
   used = u;
   logEntries = loadJson("logEntries", []);
@@ -178,7 +181,7 @@ function updateEditability(){
 
 /* ---------- cross-page points ---------- */
 function addPoints(player, amount){
-  const pts = loadJson("playerPoints", { D:500, Ä:500, G:500 });
+  const pts = loadJson("playerPoints", { "D":500, "Ä":500, "G":500 });
   pts[player] = (pts[player] || 0) + amount;
   saveJson("playerPoints", pts);
 }
