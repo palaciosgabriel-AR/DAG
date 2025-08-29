@@ -6,15 +6,15 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   line-height: 1.5;
-  background: #b00016;      /* deep red */
-  color: #ffffff;           /* white text */
+  background: #b00016;
+  color: #ffffff;
 }
 .container { max-width: 1000px; margin: 1.2rem auto 3rem; padding: 0 1rem; }
 
 /* ---------- Header + Nav + Data actions ---------- */
 .topbar {
   display: grid;
-  grid-template-columns: 1fr auto auto auto auto; /* brand | nav | data | lock | theme */
+  grid-template-columns: 1fr auto auto auto; /* brand | nav | data | theme */
   align-items: center;
   gap: .8rem;
   padding: .8rem 1rem;
@@ -44,7 +44,10 @@ body {
 
 .status { text-align: center; margin: 0 0 1.1rem; font-weight: 700; }
 
-/* ---------- Gorgeous scoreboards (Points + Map) ---------- */
+/* Role box */
+.rolebox select { padding: .2rem .4rem; border-radius: .4rem; border: 1px solid rgba(255,255,255,.6); background: #fff; color:#111; }
+
+/* ---------- Scoreboards ---------- */
 .scoreboard {
   display: flex;
   gap: .8rem;
@@ -68,21 +71,13 @@ body {
 }
 .pill .tag { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
 .pill .label, .pill .value { font-variant-numeric: tabular-nums; line-height: 1; }
-
-/* sizes: letters same size as numbers */
 body[data-page="points"] .scoreboard .label,
-body[data-page="points"] .scoreboard .value {
-  font-size: clamp(1.6rem, 4.6vw, 2.6rem);
-}
+body[data-page="points"] .scoreboard .value { font-size: clamp(1.6rem, 4.6vw, 2.6rem); }
 body[data-page="map"] .scoreboard .label,
-body[data-page="map"] .scoreboard .value {
-  font-size: clamp(1.3rem, 3.5vw, 2.2rem);
-}
-
-.pill-d .tag  { background: #4B5320; } /* Military Green */
-.pill-ae .tag { background: #7EC8E3; } /* Light Blue */
-.pill-g .tag  { background: #004080; } /* Dark Blue */
-
+body[data-page="map"] .scoreboard .value { font-size: clamp(1.3rem, 3.5vw, 2.2rem); }
+.pill-d .tag  { background: #4B5320; }
+.pill-ae .tag { background: #7EC8E3; }
+.pill-g .tag  { background: #004080; }
 .crown { font-size: 1.15em; line-height: 1; }
 
 /* ---------- Generic buttons ---------- */
@@ -122,23 +117,17 @@ input[type="text"], input[type="number"], textarea {
   border: 1px solid rgba(255,255,255,.35);
   background: rgba(255,255,255,.95); color: #111;
 }
-input[disabled] { opacity: .65; cursor: not-allowed; }
-label { display: inline-flex; align-items: center; gap: .5rem; }
-.form-row { display: grid; grid-template-columns: 1fr 2fr; gap: .6rem; align-items: center; }
-.form-row + .form-row { margin-top: .6rem; }
 
-/* ---------- Numbers page: task table ---------- */
+/* ---------- Numbers/Tasks page ---------- */
 .task-table { margin-top: 1rem; }
 .task-table th { white-space: nowrap; }
-.task-table input { background: rgba(255,255,255,.95); }
 .claim { font-size: .8rem; padding: .25rem .45rem; border-radius: .4rem; }
 
 /* ---------- Map page ---------- */
 .map-wrap { position: relative; display: flex; justify-content: center; }
 #ch-map {
-  width: 100%;
+  max-width: 100%;
   height: auto;
-  aspect-ratio: 1000 / 700;
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.25);
   border-radius: .8rem;
@@ -166,20 +155,6 @@ label { display: inline-flex; align-items: center; gap: .5rem; }
 }
 
 .counts { text-align: center; margin: .8rem 0; }
-
-/* Assign chips */
-.assign-controls {
-  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; justify-content: center; margin: .8rem 0;
-}
-.assign-label { opacity: .9; font-weight: 600; }
-.chip {
-  padding: .35rem .7rem; border-radius: 999px; border: 1px solid rgba(255,255,255,.6);
-  background: rgba(255,255,255,.15); color: #fff; cursor: pointer; font-weight: 700;
-}
-.chip.active { background: #fff; color: #111; }
-.legend { margin-left: .8rem; display: inline-flex; gap: .6rem; align-items: center; }
-.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
-.swatch-d{background:#4B5320}.swatch-ae{background:#7EC8E3}.swatch-g{background:#004080}
 
 /* ---------- Footer / Reset ---------- */
 .footer { display: flex; justify-content: center; margin-top: 2rem; }
