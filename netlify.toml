@@ -1,7 +1,6 @@
 [build]
   publish = "."
-
-# --- Global security/CSP headers (unchanged) ---
+# --- Global security/CSP headers (fixed for Firebase) ---
 [[headers]]
   for = "/*"
   [headers.values]
@@ -11,13 +10,14 @@
       object-src 'none';
       img-src 'self' data: https:;
       font-src 'self' data:;
-      script-src 'self' https://www.gstatic.com;
+      script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googleapis.com;
       style-src 'self' 'unsafe-inline';
       connect-src 'self'
         https://firestore.googleapis.com
         https://identitytoolkit.googleapis.com
         https://securetoken.googleapis.com
         https://www.googleapis.com
+        https://apis.google.com
         https://upload.wikimedia.org
         https://simplemaps.com;
       frame-ancestors 'self';
@@ -27,46 +27,37 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "SAMEORIGIN"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
-
 # --- Caching rules to avoid manual ?v bumps ---
-
 # HTML should NEVER be cached (always fetch fresh)
 [[headers]]
   for = "/*.html"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 # These change often; always fetch fresh
 [[headers]]
   for = "/sync.js"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 [[headers]]
   for = "/map.js"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 [[headers]]
   for = "/numbers.js"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 [[headers]]
   for = "/points.js"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 [[headers]]
   for = "/shared.js"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 [[headers]]
   for = "/styles.css"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
-
 # Static assets can be cached normally
 [[headers]]
   for = "/ch.svg"
