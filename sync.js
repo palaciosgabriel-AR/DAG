@@ -1,13 +1,13 @@
 // sync.js — optimized Firebase sync with quota protection
 
-/* ---------- Firebase config (REPLACE WITH YOUR NEW PROJECT CONFIG) ---------- */
+/* ---------- Firebase config ---------- */
 var firebaseConfig = {
-  apiKey: "YOUR_NEW_API_KEY",
-  authDomain: "your-new-project.firebaseapp.com", 
-  projectId: "your-new-project",
-  storageBucket: "your-new-project.firebasestorage.app",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDiyIXeHs78Eh9OFYNtSZqYWtQoIk5WZAU",
+  authDomain: "dag2-94e6a.firebaseapp.com",
+  projectId: "dag2-94e6a",
+  storageBucket: "dag2-94e6a.firebasestorage.app",
+  messagingSenderId: "958018507364",
+  appId: "1:958018507364:web:7768f5b9606d1191d94571"
 };
 var GAME_ID = "DAEG";
 var PROJECT = firebaseConfig.projectId;
