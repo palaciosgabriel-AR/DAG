@@ -42,7 +42,7 @@ function nowIso(){ return new Date().toISOString(); }
 /* revMap to detect newer values per-key */
 var revMap = get('revMap', {});
 function getRev(k){ return (revMap && typeof revMap[k]==='number') ? revMap[k] : 0; }
-function bumpRev(k){ revMap[k] = getRev(k) + 1; set('revMap', revMap); }
+function bumpRev(k){ revMap[k] = getRev(k) + 1; _set('revMap', JSON.stringify(revMap)); }
 
 /* badge */
 (function(){
