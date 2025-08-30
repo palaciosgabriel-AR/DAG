@@ -80,7 +80,7 @@ function applyRemote(data){
       changed = true;
     }
   }
-  set('revMap', revMap);
+  _set('revMap', JSON.stringify(revMap));
 
   // Update badge
   var el = document.getElementById('liveStatus');
@@ -162,7 +162,7 @@ window.daegSyncRestore = function(snap){
   } finally { applyingRemote = false; }
   // bump epoch to make this authoritative
   setLocalEpoch(getLocalEpoch() + 1);
-  set('revMap', revMap);
+  _set('revMap', JSON.stringify(revMap));
   schedulePush();
   try { window.dispatchEvent(new CustomEvent("daeg-sync-apply")); } catch(_){}
 };
