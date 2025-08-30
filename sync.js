@@ -182,36 +182,66 @@ function start(){
   onAuthStateChanged(auth, function(user){
     if (user) {
       updateStatus("Loading...", "rgba(255,193,7,.25)");
+      console.log('Firebase auth success, user:', user.uid);
       
       // Initial fetch
       getDoc(gameRef).then(function(snap){ 
         if (snap.exists()) applyRemote(snap.data() || {}); 
         updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
+        console.log('Initial data loaded successfully');
       }).catch(function(e){
-        console.warn('Initial fetch failed:', e.message);
-        updateStatus("Load failed", "rgba(220,53,69,.25)");
+        console.error('Initial fetch failed:', e);
+        updateStatus("Load failed: " + e.code, "rgba(220,53,69,.25)");
       });
       
       // Live updates
       onSnapshot(gameRef, function(snap){ 
+        console.log('Received server update');
         if (snap.exists()) { 
           applyingRemote = true; 
           try{ applyRemote(snap.data() || {}); } 
           finally{ applyingRemote = false; } 
         } 
       }, function(error){
-        console.warn('Live sync error:', error.message);
-        updateStatus("Sync error", "rgba(220,53,69,.25)");
+        console.error('Live sync error:', error);
+        updateStatus("Sync error: " + error.code, "rgba(220,53,69,.25)");
       });
+    } else {
+      console.log('No Firebase user - attempting sign in');
     }
   });
   
-  signInAnonymously(auth).catch(function(e){
-    console.warn('Auth failed:', e.message);
-    updateStatus("Auth failed", "rgba(220,53,69,.25)");
+  signInAnonymously(auth).then(function(result){
+    console.log('Anonymous sign in successful:', result.user.uid);
+  }).catch(function(e){
+    console.error('Auth failed:', e);
+    updateStatus("Auth failed: " + e.code, "rgba(220,53,69,.25)");
   });
 }
 
 start();
+
+// Enhanced mobile sync fix with connection monitoring
+setInterval(function(){
+  if (changedKeys.size > 0) {
+    console.log('Mobile sync: forcing push of', changedKeys.size, 'pending changes');
+    pushNow();
+  }
+}, 5000);
+
+// Additional mobile fix - re-authenticate periodically on mobile
+if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+  console.log('Mobile device detected, enabling enhanced sync');
+  setInterval(function(){
+    // Re-authenticate if we have pending changes but status shows error
+    if (changedKeys.size > 0 && statusEl && statusEl.textContent.includes('failed')) {
+      console.log('Mobile re-auth attempt due to sync failure');
+      signInAnonymously(auth).catch(function(e){
+        console.warn('Mobile re-auth failed:', e);
+      });
+    }
+  }, 10000);
+}
+
 window.daegSyncTouch = function(){ schedulePush(); };
 window.__DAEG_INFO__ = { project: PROJECT, gameId: GAME_ID };
