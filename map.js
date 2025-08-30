@@ -1,4 +1,4 @@
-/* Map assignment (persists) + labels + crowned leader — ES2018 safe */
+/* Map assignment (persists) + labels + crowned leader — with Safari no-store fetch */
 var COLORS = { 'D': '#4B5320', 'Ä': '#7EC8E3', 'G': '#004080' };
 var CODES = ['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','VD','VS','NE','GE','TI','JU'];
 var CODESET = new Set(CODES);
@@ -14,44 +14,56 @@ function myPlayer(){ return localStorage.getItem('myPlayer') || 'D'; }
 var mapState = load('mapState', {});   // {ZH:'D', ...}
 
 var hostSvg = document.getElementById('ch-map');
-var layer = document.getElementById('cantons-layer');
+var layer   = document.getElementById('cantons-layer');
 
 function normId(raw){
   if(!raw) return null;
   var s = String(raw).toUpperCase().trim();
-  s = s.replace(/^CH[\-_.\s]?/,'');
-  s = s.replace(/[^A-Z]/g,'');
-  if(s.length>2) s = s.slice(-2);
+  s = s.replace(/^CH[\-_.\s]?/,'').replace(/[^A-Z]/g,'');
+  if (s.length>2) s = s.slice(-2);
   return CODESET.has(s)?s:null;
 }
 
-/* Load local ch.svg (must exist beside this file) */
+/* ---- Load local SVG (Safari: no-store to avoid stale cache) ---- */
 (function loadSvg(){
-  fetch('./ch.svg', {mode:'cors'}).then(function(r){
-    if(!r.ok) throw new Error('svg not found');
-    return r.text();
-  }).then(function(txt){
-    var doc = new DOMParser().parseFromString(txt,'image/svg+xml'); var src = doc.documentElement;
-    var vb = src.getAttribute('viewBox'); if(vb) hostSvg.setAttribute('viewBox', vb);
-    layer.innerHTML = '';
-    function ensure(code){ var g=layer.querySelector('#'+code); if(!g){ g=document.createElementNS('http://www.w3.org/2000/svg','g'); g.setAttribute('class','canton'); g.setAttribute('id',code); layer.appendChild(g);} return g; }
+  fetch('./ch.svg', { mode:'cors', cache:'no-store' })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(function(txt){
+      var doc = new DOMParser().parseFromString(txt,'image/svg+xml');
+      var src = doc.documentElement;
+      var vb  = src.getAttribute('viewBox'); if (vb) hostSvg.setAttribute('viewBox', vb);
+      layer.innerHTML = '';
 
-    Array.prototype.forEach.call(src.querySelectorAll('g[id]'), function(G){
-      var code = normId(G.getAttribute('id')); if(!code) return;
-      var dest = ensure(code);
-      Array.prototype.forEach.call(G.querySelectorAll('path,polygon,rect'), function(sh){ var c=sh.cloneNode(true); scrub(c); dest.appendChild(c); });
-    });
-    Array.prototype.forEach.call(src.querySelectorAll('path[id],polygon[id],rect[id]'), function(sh){
-      var code = normId(sh.getAttribute('id')); if(!code) return;
-      var dest = ensure(code); var c=sh.cloneNode(true); scrub(c); dest.appendChild(c);
-    });
-    if (layer.querySelectorAll('.canton').length < 20) throw new Error('not enough shapes');
+      function ensure(code){
+        var g = layer.querySelector('#'+code);
+        if(!g){
+          g = document.createElementNS('http://www.w3.org/2000/svg','g');
+          g.setAttribute('class','canton'); g.setAttribute('id',code);
+          layer.appendChild(g);
+        }
+        return g;
+      }
+      Array.prototype.forEach.call(src.querySelectorAll('g[id]'), function(G){
+        var code = normId(G.getAttribute('id')); if(!code) return;
+        var dest = ensure(code);
+        Array.prototype.forEach.call(G.querySelectorAll('path,polygon,rect'), function(sh){
+          var c = sh.cloneNode(true); scrub(c); dest.appendChild(c);
+        });
+      });
+      Array.prototype.forEach.call(src.querySelectorAll('path[id],polygon[id],rect[id]'), function(sh){
+        var code = normId(sh.getAttribute('id')); if(!code) return;
+        var dest = ensure(code); var c = sh.cloneNode(true); scrub(c); dest.appendChild(c);
+      });
 
-    wireCantons(); applyMapColors(); updateCounts();
-  }).catch(function(e){
-    var c = document.getElementById('counts'); if (c) c.textContent = 'Map failed to load.';
-    console.error(e);
-  });
+      if (layer.querySelectorAll('.canton').length < 20) throw new Error('SVG missing canton shapes');
+
+      wireCantons(); applyMapColors(); updateCounts();
+    })
+    .catch(function(err){
+      var c = document.getElementById('counts');
+      if (c) c.textContent = 'Map failed to load (Safari cache?). Hard-reload the page.';
+      console.error('ch.svg load failed:', err);
+    });
 })();
 
 function scrub(el){ el.removeAttribute('class'); el.removeAttribute('style'); el.removeAttribute('fill'); el.removeAttribute('stroke'); el.removeAttribute('opacity'); }
@@ -80,11 +92,9 @@ function wireCantons(){
       if (!owner) mapState[id] = me;
       else if (owner === me) delete mapState[id];
       else mapState[id] = me;
+
       save('mapState', mapState);
-
-      // Immediate UI update
       applyMapColors(); updateCounts();
-
       if (window.daegSyncTouch) window.daegSyncTouch();
     });
 
@@ -111,6 +121,7 @@ function applyMapColors(){
   });
 }
 window.addEventListener('daeg-theme-change', applyMapColors);
+window.addEventListener('daeg-sync-apply', function(){ mapState = load('mapState', {}); applyMapColors(); updateCounts(); });
 
 function updateCounts(){
   var counts={'D':0,'Ä':0,'G':0};
@@ -133,12 +144,6 @@ function renderScoreboard(items, ariaLabel){
   }).join('');
   return '<div class="scoreboard" aria-label="'+ariaLabel+'">'+pills+'</div>';
 }
-
-/* sync updates */
-window.addEventListener('daeg-sync-apply', function(){
-  mapState = load('mapState', {});
-  applyMapColors(); updateCounts();
-});
 
 /* helpers */
 function load(k,d){ try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d));}catch(e){return d;} }
