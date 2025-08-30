@@ -10,7 +10,7 @@
       object-src 'none';
       img-src 'self' data: https:;
       font-src 'self' data:;
-      script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googleapis.com;
+      script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googleapis.com https://dag2-94e6a.firebaseapp.com;
       style-src 'self' 'unsafe-inline';
       connect-src 'self'
         https://firestore.googleapis.com
@@ -18,8 +18,10 @@
         https://securetoken.googleapis.com
         https://www.googleapis.com
         https://apis.google.com
+        https://dag2-94e6a.firebaseapp.com
         https://upload.wikimedia.org
         https://simplemaps.com;
+      frame-src https://dag2-94e6a.firebaseapp.com;
       frame-ancestors 'self';
       form-action 'self';
     """
