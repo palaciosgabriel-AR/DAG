@@ -1,4 +1,4 @@
-// sync.js — optimized Firebase sync with quota protection
+// sync.js — optimized Firebase sync (always-merge + extra push triggers)
 
 /* ---------- Firebase config ---------- */
 var firebaseConfig = {
@@ -50,92 +50,83 @@ function updateStatus(text, color) {
 }
 
 /* ---------- Apply remote data ---------- */
+var applyingRemote = false;
 function applyRemote(data){
   var changed = false;
   for (var i=0;i<KEYS.length;i++){
     var k = KEYS[i];
     if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
-    
-    var current = localStorage.getItem(k);
+
+    var current  = localStorage.getItem(k);
     var incoming = JSON.stringify(data[k]);
     if (current !== incoming) {
       applyingRemote = true;
-      set(k, data[k]);
+      set(k, data[k]);       // write local without marking dirty
       applyingRemote = false;
       changed = true;
     }
   }
-
   if (changed) {
     try { window.dispatchEvent(new CustomEvent("daeg-sync-apply")); } catch(_){}
   }
 }
 
-/* ---------- Optimized push with batching ---------- */
-var applyingRemote = false;
-var changedKeys = new Set();
-var pushTimer = null;
-var lastPushTime = 0;
-var MIN_PUSH_INTERVAL = 2000; // Minimum 2 seconds between pushes
+/* ---------- Batched push ---------- */
+var changedKeys   = new Set();
+var pushTimer     = null;
+var lastPushTime  = 0;
+var MIN_PUSH_MS   = 2000;
 
-// Override localStorage to track changes
+/* override setItem to detect changes */
 var _set = localStorage.setItem.bind(localStorage);
 localStorage.setItem = function(k, v){
   var before = localStorage.getItem(k);
   _set(k, v);
   if (!applyingRemote && KEYS.indexOf(k) !== -1 && before !== v) {
-    changedKeys.add(k); 
+    changedKeys.add(k);
     schedulePush();
   }
 };
 
-function schedulePush(){ 
+function schedulePush(){
   if (pushTimer) clearTimeout(pushTimer);
   var now = Date.now();
-  var timeSinceLastPush = now - lastPushTime;
-  var delay = Math.max(1000, MIN_PUSH_INTERVAL - timeSinceLastPush); // At least 1 second, respect minimum interval
-  pushTimer = setTimeout(pushNow, delay); 
+  var delay = Math.max(1000, MIN_PUSH_MS - (now - lastPushTime));
+  pushTimer = setTimeout(pushNow, delay);
 }
 
 function pushNow(){
   if (changedKeys.size === 0) return;
-  
-  var now = Date.now();
-  if (now - lastPushTime < MIN_PUSH_INTERVAL) {
-    // Too soon, reschedule
-    schedulePush();
-    return;
-  }
-  
+
   var payload = {};
   changedKeys.forEach(function(k){ payload[k] = safeParse(localStorage.getItem(k)); });
   payload._meta = { updatedAt: serverTimestamp(), from: 'web', time: nowIso() };
 
-  lastPushTime = now;
-  updateStatus("Syncing...", "rgba(255,193,7,.25)");
-  
-  // Use merge: false on mobile for more reliable sync
-  var isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  var mergeOption = isMobile ? { merge: false } : { merge: true };
-  
-  console.log('Pushing changes:', Array.from(changedKeys), 'mobile:', isMobile);
-  
-  setDoc(gameRef, payload, mergeOption).then(function(){
-    changedKeys.clear();
-    updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
-    console.log('Sync successful');
-  }).catch(function(e){
-    console.error('Sync failed:', e.code, e.message);
-    updateStatus("Sync failed: " + e.code, "rgba(220,53,69,.25)");
-    // More aggressive retry for mobile
-    var retryDelay = isMobile ? 3000 : Math.min(10000, 2000 * Math.pow(2, Math.random()));
-    setTimeout(schedulePush, retryDelay);
-  });
+  lastPushTime = Date.now();
+  updateStatus("Syncing…", "rgba(255,193,7,.25)");
+
+  // IMPORTANT: always merge to avoid overwriting fields from other devices
+  setDoc(gameRef, payload, { merge: true })
+    .then(function(){
+      changedKeys.clear();
+      updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
+    })
+    .catch(function(e){
+      console.error('Sync failed:', e.code, e.message);
+      updateStatus("Sync failed: " + e.code, "rgba(220,53,69,.25)");
+      setTimeout(schedulePush, 3000);
+    });
 }
 
-/* ---------- Reset function ---------- */
+/* Extra push triggers (helps iOS Safari) */
+window.addEventListener('visibilitychange', function(){
+  if (document.visibilityState === 'hidden') pushNow();
+});
+window.addEventListener('pagehide', function(){ pushNow(); });
+
+/* ---------- Reset (keeps tasks) ---------- */
 window.daegSyncReset = function(){
-  updateStatus("Resetting...", "rgba(255,193,7,.25)");
+  updateStatus("Resetting…", "rgba(255,193,7,.25)");
   var tasks = get('tasksByNumber', {});
   var fresh = {
     usedSets: { "D":[], "Ä":[], "G":[] },
@@ -148,108 +139,59 @@ window.daegSyncReset = function(){
     tasksByNumber: tasks,
     _meta: { resetAt: nowIso(), from: 'reset' }
   };
-  
-  // Clear locally first
+
   applyingRemote = true;
-  try {
-    Object.keys(fresh).forEach(function(k){ set(k, fresh[k]); });
-  } finally { applyingRemote = false; }
-  
-  // Force immediate push to server (bypass normal batching)
-  changedKeys.clear(); // Clear any pending changes
-  setDoc(gameRef, fresh, { merge: false }).then(function(){
-    updateStatus("Reset complete", "rgba(46,204,113,.25)");
-    setTimeout(function(){
-      updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
-    }, 2000);
-  }).catch(function(e){
-    console.warn('Reset failed:', e.message);
-    updateStatus("Reset failed", "rgba(220,53,69,.25)");
-  });
-  
-  try { window.dispatchEvent(new CustomEvent("daeg-sync-apply")); } catch(_){}
+  try { Object.keys(fresh).forEach(function(k){ set(k, fresh[k]); }); }
+  finally { applyingRemote = false; }
+
+  setDoc(gameRef, fresh, { merge: true })
+    .then(function(){
+      updateStatus("Reset complete", "rgba(46,204,113,.25)");
+      try { window.dispatchEvent(new CustomEvent("daeg-sync-apply")); } catch(_){}
+    })
+    .catch(function(e){
+      console.warn('Reset failed:', e.message);
+      updateStatus("Reset failed", "rgba(220,53,69,.25)");
+    });
 };
 
 /* ---------- Restore from export ---------- */
 window.daegSyncRestore = function(snap){
   if (!snap || typeof snap !== 'object') return;
   applyingRemote = true;
-  try {
-    Object.keys(snap).forEach(function(k){
-      if (KEYS.indexOf(k) !== -1) set(k, snap[k]);
-    });
-  } finally { applyingRemote = false; }
+  try { Object.keys(snap).forEach(function(k){ if (KEYS.indexOf(k)!==-1) set(k, snap[k]); }); }
+  finally { applyingRemote = false; }
   schedulePush();
   try { window.dispatchEvent(new CustomEvent("daeg-sync-apply")); } catch(_){}
 };
 
 /* ---------- Start sync ---------- */
 function start(){
-  updateStatus("Connecting...", "rgba(108,117,125,.25)");
-  
+  updateStatus("Connecting…", "rgba(108,117,125,.25)");
   onAuthStateChanged(auth, function(user){
     if (user) {
-      updateStatus("Loading...", "rgba(255,193,7,.25)");
-      console.log('Firebase auth success, user:', user.uid);
-      
-      // Initial fetch
-      getDoc(gameRef).then(function(snap){ 
-        if (snap.exists()) applyRemote(snap.data() || {}); 
-        updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
-        console.log('Initial data loaded successfully');
-      }).catch(function(e){
-        console.error('Initial fetch failed:', e);
-        updateStatus("Load failed: " + e.code, "rgba(220,53,69,.25)");
-      });
-      
-      // Live updates
-      onSnapshot(gameRef, function(snap){ 
-        console.log('Received server update');
-        if (snap.exists()) { 
-          applyingRemote = true; 
-          try{ applyRemote(snap.data() || {}); } 
-          finally{ applyingRemote = false; } 
-        } 
+      updateStatus("Loading…", "rgba(255,193,7,.25)");
+      getDoc(gameRef)
+        .then(function(snap){ if (snap.exists()) applyRemote(snap.data() || {}); })
+        .finally(function(){ updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)"); });
+
+      onSnapshot(gameRef, function(snap){
+        if (snap.exists()) applyRemote(snap.data() || {});
       }, function(error){
         console.error('Live sync error:', error);
         updateStatus("Sync error: " + error.code, "rgba(220,53,69,.25)");
       });
-    } else {
-      console.log('No Firebase user - attempting sign in');
     }
   });
-  
-  signInAnonymously(auth).then(function(result){
-    console.log('Anonymous sign in successful:', result.user.uid);
-  }).catch(function(e){
+  signInAnonymously(auth).catch(function(e){
     console.error('Auth failed:', e);
     updateStatus("Auth failed: " + e.code, "rgba(220,53,69,.25)");
   });
 }
-
 start();
 
-// Enhanced mobile sync fix with connection monitoring
-setInterval(function(){
-  if (changedKeys.size > 0) {
-    console.log('Mobile sync: forcing push of', changedKeys.size, 'pending changes');
-    pushNow();
-  }
-}, 5000);
-
-// Additional mobile fix - re-authenticate periodically on mobile
-if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-  console.log('Mobile device detected, enabling enhanced sync');
-  setInterval(function(){
-    // Re-authenticate if we have pending changes but status shows error
-    if (changedKeys.size > 0 && statusEl && statusEl.textContent.includes('failed')) {
-      console.log('Mobile re-auth attempt due to sync failure');
-      signInAnonymously(auth).catch(function(e){
-        console.warn('Mobile re-auth failed:', e);
-      });
-    }
-  }, 10000);
-}
+/* Safety net: force push any pending changes every 5s */
+setInterval(function(){ if (changedKeys.size > 0) pushNow(); }, 5000);
 
 window.daegSyncTouch = function(){ schedulePush(); };
 window.__DAEG_INFO__ = { project: PROJECT, gameId: GAME_ID };
