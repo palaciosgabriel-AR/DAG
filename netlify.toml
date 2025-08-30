@@ -1,29 +1,17 @@
 [build]
   publish = "."
-# --- Global security/CSP headers (fixed for Firebase) ---
+# --- Temporarily relaxed CSP for Firebase testing ---
 [[headers]]
   for = "/*"
   [headers.values]
     Content-Security-Policy = """
-      default-src 'self';
-      base-uri 'self';
-      object-src 'none';
+      default-src 'self' https:;
+      script-src 'self' 'unsafe-inline' https:;
+      style-src 'self' 'unsafe-inline' https:;
+      connect-src 'self' https:;
       img-src 'self' data: https:;
-      font-src 'self' data:;
-      script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googleapis.com https://dag2-94e6a.firebaseapp.com;
-      style-src 'self' 'unsafe-inline';
-      connect-src 'self'
-        https://firestore.googleapis.com
-        https://identitytoolkit.googleapis.com
-        https://securetoken.googleapis.com
-        https://www.googleapis.com
-        https://apis.google.com
-        https://dag2-94e6a.firebaseapp.com
-        https://upload.wikimedia.org
-        https://simplemaps.com;
-      frame-src https://dag2-94e6a.firebaseapp.com;
-      frame-ancestors 'self';
-      form-action 'self';
+      font-src 'self' data: https:;
+      frame-src https:;
     """
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Content-Type-Options = "nosniff"
