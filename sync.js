@@ -127,6 +127,7 @@ function pushNow(){
 
 /* ---------- Reset function ---------- */
 window.daegSyncReset = function(){
+  updateStatus("Resetting...", "rgba(255,193,7,.25)");
   var tasks = get('tasksByNumber', {});
   var fresh = {
     usedSets: { "D":[], "Ä":[], "G":[] },
@@ -136,13 +137,28 @@ window.daegSyncReset = function(){
     mapState: {},
     activePlayer: 'D',
     lastPlayer: 'D',
-    tasksByNumber: tasks
+    tasksByNumber: tasks,
+    _meta: { resetAt: nowIso(), from: 'reset' }
   };
+  
+  // Clear locally first
   applyingRemote = true;
   try {
     Object.keys(fresh).forEach(function(k){ set(k, fresh[k]); });
   } finally { applyingRemote = false; }
-  schedulePush();
+  
+  // Force immediate push to server (bypass normal batching)
+  changedKeys.clear(); // Clear any pending changes
+  setDoc(gameRef, fresh, { merge: false }).then(function(){
+    updateStatus("Reset complete", "rgba(46,204,113,.25)");
+    setTimeout(function(){
+      updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
+    }, 2000);
+  }).catch(function(e){
+    console.warn('Reset failed:', e.message);
+    updateStatus("Reset failed", "rgba(220,53,69,.25)");
+  });
+  
   try { window.dispatchEvent(new CustomEvent("daeg-sync-apply")); } catch(_){}
 };
 
