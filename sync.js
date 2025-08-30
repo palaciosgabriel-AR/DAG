@@ -114,14 +114,22 @@ function pushNow(){
   lastPushTime = now;
   updateStatus("Syncing...", "rgba(255,193,7,.25)");
   
-  setDoc(gameRef, payload, { merge:true }).then(function(){
+  // Use merge: false on mobile for more reliable sync
+  var isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  var mergeOption = isMobile ? { merge: false } : { merge: true };
+  
+  console.log('Pushing changes:', Array.from(changedKeys), 'mobile:', isMobile);
+  
+  setDoc(gameRef, payload, mergeOption).then(function(){
     changedKeys.clear();
     updateStatus("Live: " + PROJECT, "rgba(46,204,113,.25)");
+    console.log('Sync successful');
   }).catch(function(e){
-    console.warn('Sync failed:', e.message);
-    updateStatus("Sync failed", "rgba(220,53,69,.25)");
-    // Retry with exponential backoff
-    setTimeout(schedulePush, Math.min(10000, 2000 * Math.pow(2, Math.random())));
+    console.error('Sync failed:', e.code, e.message);
+    updateStatus("Sync failed: " + e.code, "rgba(220,53,69,.25)");
+    // More aggressive retry for mobile
+    var retryDelay = isMobile ? 3000 : Math.min(10000, 2000 * Math.pow(2, Math.random()));
+    setTimeout(schedulePush, retryDelay);
   });
 }
 
