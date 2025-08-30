@@ -24,14 +24,11 @@
     </div>
     <label class="toggle"><input type="checkbox" id="darkToggle"> Night mode</label>
   </header>
-
   <main class="container">
     <p id="status" class="status"></p>
-
     <section class="buttons">
       <button id="btn-draw" class="btn btn-letter">Draw task</button>
     </section>
-
     <section class="log">
       <h2>Log</h2>
       <table>
@@ -39,7 +36,6 @@
         <tbody id="logBody"></tbody>
       </table>
     </section>
-
     <section class="task-table">
       <h2>Tasks (1–26)</h2>
       <table>
@@ -47,14 +43,12 @@
         <tbody id="tasksBody"></tbody>
       </table>
     </section>
-
     <footer class="footer">
       <button id="reset" class="btn btn-reset" title="Reset numbers, log (keep tasks)">Reset</button>
     </footer>
   </main>
-
-  <script src="./shared.js" defer></script>
   <script type="module" src="./sync.js?v=20"></script>
-  <script src="./numbers.js" defer></script>
+  <script src="./shared.js"></script>
+  <script src="./numbers.js"></script>
 </body>
 </html>
